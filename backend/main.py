@@ -153,7 +153,9 @@ from db import list_case_transcript_templates as db_list_case_transcript_templat
 from db import update_case_session_status as db_update_case_session_status
 from db import verify_case_audit_chain as db_verify_case_audit_chain
 from db import close_case as db_close_case
+from db import archive_case as db_archive_case
 from db import get_case_completion_report as db_get_case_completion_report
+from db import get_case_workflow_dashboard as db_get_case_workflow_dashboard
 from db import log_case_archive_event as db_log_case_archive_event
 from db import create_case_recording_binding as db_create_case_recording_binding
 from db import list_case_recording_bindings as db_list_case_recording_bindings
@@ -2236,6 +2238,11 @@ async def get_cases(keyword: str = Query("", max_length=160), status: str = Quer
     return {"code": 0, "data": db_list_cases(keyword=keyword.strip(), status=status or None)}
 
 
+@app.get("/api/cases/workflow/dashboard", summary="获取办案流程总览", tags=["案件"])
+async def get_case_workflow_dashboard():
+    return {"code": 0, "data": db_get_case_workflow_dashboard()}
+
+
 @app.post("/api/cases", summary="创建案件", tags=["案件"])
 async def post_case(request: Request):
     if not _can_manage(request):
@@ -2295,6 +2302,14 @@ async def post_close_case(case_id: int, request: Request):
     return {"code": -1, "msg": "案件尚未满足办结完整性要求", "data": report}
 
 
+@app.post("/api/cases/{case_id}/archive", summary="归档已办结案件", tags=["案件"])
+async def post_archive_case(case_id: int, request: Request):
+    if not _is_admin(request):
+        return {"code": 403, "msg": "仅管理员可归档案件"}
+    archived = db_archive_case(case_id=case_id, actor=str((_request_user(request) or {}).get("username", "unknown")))
+    return {"code": 0, "data": archived} if archived else {"code": -1, "msg": "仅已办结案件可归档"}
+
+
 @app.get("/api/cases/{case_id}/sessions", summary="获取案件办案会话", tags=["案件"])
 async def get_case_sessions(case_id: int):
     if not db_get_case(case_id=case_id):
@@ -2334,7 +2349,7 @@ async def post_case_session(case_id: int, request: Request):
         if not location:
             location = str(room.get("location") or room["name"])
     actor = str((_request_user(request) or {}).get("username", "unknown"))
-    created = db_create_case_session(case_id=case_id, device_id=device_id, session_no=session_no, session_type=session_type, recording_mode=recording_mode, planned_start_at=planned_start_at, planned_end_at=planned_end_at, location=location, host_name=host_name, participant_summary=participant_summary, created_by=actor)
+    created = db_create_case_session(case_id=case_id, device_id=device_id, room_id=room_id, session_no=session_no, session_type=session_type, recording_mode=recording_mode, planned_start_at=planned_start_at, planned_end_at=planned_end_at, location=location, host_name=host_name, participant_summary=participant_summary, created_by=actor)
     if created and planned_start_at:
         db_create_case_device_command(session_id=int(created["id"]), action="start", scheduled_at=planned_start_at, idempotency_key=f"session:{created['id']}:start", created_by=actor)
         db_create_case_device_command(session_id=int(created["id"]), action="stop", scheduled_at=str(planned_end_at), idempotency_key=f"session:{created['id']}:stop", created_by=actor)

@@ -1,861 +1,190 @@
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <style>
+    :root { --screen-bg:#06152b; --panel-bg:rgba(8,38,78,.8); --panel-line:rgba(46,184,255,.42); --text:#e8f8ff; --muted:#88b7d6; --cyan:#26dfff; --blue:#3187ff; --green:#35d78b; --orange:#ffb34d; --red:#ff5f72; }
+    * { box-sizing:border-box; }
+    html,body { min-height:100%; }
+    body { margin:0; background:var(--screen-bg); color:var(--text); font-family:"Microsoft YaHei","Noto Sans SC",sans-serif; }
+    .command-screen { min-height:calc(100vh - 2px); padding:12px 16px 16px; overflow:auto; background:linear-gradient(rgba(15,106,172,.1) 1px,transparent 1px),linear-gradient(90deg,rgba(15,106,172,.1) 1px,transparent 1px),radial-gradient(ellipse at 50% 12%,rgba(0,181,255,.2),transparent 36%),#06152b; background-size:34px 34px,34px 34px,auto,auto; }
+    .screen-header { position:relative; height:64px; display:flex; align-items:center; justify-content:center; border-bottom:1px solid rgba(49,135,255,.48); }
+    .screen-header:after { content:""; position:absolute; bottom:-1px; width:42%; height:2px; background:linear-gradient(90deg,transparent,var(--cyan),transparent); }
+    .screen-title { margin:0; font-size:28px; font-weight:700; letter-spacing:6px; color:#effcff; text-shadow:0 0 16px rgba(38,223,255,.85); }
+    .screen-meta { position:absolute; right:0; top:21px; display:flex; align-items:center; gap:12px; color:var(--muted); font-size:13px; }
+    .screen-action { color:var(--cyan); background:transparent; border:1px solid rgba(38,223,255,.5); padding:4px 8px; cursor:pointer; }
+    .screen-action:hover { background:rgba(38,223,255,.13); }
+    .workflow-ribbon { display:grid; grid-template-columns:repeat(7,minmax(100px,1fr)); gap:8px; margin-top:12px; padding:10px; border:1px solid rgba(46,184,255,.35); background:rgba(4,28,62,.72); }
+    .workflow-node { position:relative; min-height:58px; padding:9px 12px; border:1px solid rgba(83,163,230,.35); background:linear-gradient(135deg,rgba(19,82,149,.52),rgba(5,34,74,.5)); }
+    .workflow-node:not(:last-child):after { content:""; position:absolute; z-index:2; top:27px; right:-7px; width:7px; height:7px; border-top:1px solid var(--cyan); border-right:1px solid var(--cyan); transform:rotate(45deg); }
+    .workflow-node span { display:block; color:#a9d4eb; font-size:12px; }
+    .workflow-node strong { display:block; margin-top:4px; color:#fff; font:700 21px Consolas,monospace; }
+    .workflow-node.handling { border-color:rgba(255,179,77,.85); box-shadow:inset 0 0 18px rgba(255,179,77,.16),0 0 12px rgba(255,179,77,.12); }
+    .workflow-node.handling strong { color:var(--orange); }
+    .screen-grid { display:grid; grid-template-columns:minmax(230px,1fr) minmax(430px,1.8fr) minmax(270px,1.1fr); gap:12px; margin-top:12px; }
+    .left-column,.right-column,.center-column { min-width:0; display:grid; gap:12px; }
+    .left-column { grid-template-rows:230px 230px minmax(210px,1fr); }
+    .center-column { grid-template-rows:350px minmax(320px,1fr); }
+    .right-column { grid-template-rows:auto minmax(225px,1fr) minmax(235px,1fr); }
+    .screen-panel { position:relative; min-width:0; overflow:hidden; border:1px solid var(--panel-line); background:linear-gradient(135deg,rgba(12,52,101,.9),rgba(4,24,56,.88)); box-shadow:inset 0 0 26px rgba(28,133,234,.08),0 0 20px rgba(0,72,148,.12); }
+    .screen-panel:before,.screen-panel:after { content:""; position:absolute; width:16px; height:16px; border-color:var(--cyan); pointer-events:none; }
+    .screen-panel:before { top:-1px; left:-1px; border-top:2px solid; border-left:2px solid; }
+    .screen-panel:after { right:-1px; bottom:-1px; border-right:2px solid; border-bottom:2px solid; }
+    .panel-title { height:36px; display:flex; align-items:center; padding:0 13px; font-size:14px; font-weight:700; color:#dff7ff; border-bottom:1px solid rgba(67,171,241,.25); background:linear-gradient(90deg,rgba(30,116,201,.33),transparent); }
+    .panel-title:before { content:""; width:3px; height:14px; margin-right:8px; background:var(--cyan); box-shadow:0 0 7px var(--cyan); }
+    .chart { height:calc(100% - 36px); min-height:150px; }
+    .overview { display:grid; grid-template-columns:1fr 1.15fr 1fr; align-items:center; height:100%; padding:14px 10px 12px; }
+    .metric-column { display:grid; gap:14px; }
+    .overview-metric { padding:8px 2px; text-align:center; }
+    .overview-metric span { display:block; font-size:13px; color:var(--muted); }
+    .overview-metric strong { display:block; margin-top:6px; font-family:Consolas,monospace; font-size:29px; color:var(--cyan); text-shadow:0 0 10px rgba(38,223,255,.75); }
+    .core-orbit { position:relative; width:min(205px,100%); aspect-ratio:1; margin:auto; display:flex; align-items:center; justify-content:center; border:2px solid rgba(38,223,255,.58); border-radius:50%; box-shadow:0 0 0 10px rgba(38,223,255,.06),inset 0 0 25px rgba(34,177,255,.25),0 0 26px rgba(34,177,255,.3); }
+    .core-orbit:before { content:""; position:absolute; inset:11px; border:1px dashed rgba(104,226,255,.7); border-radius:inherit; animation:screen-spin 16s linear infinite; }
+    .core-orbit:after { content:""; position:absolute; width:7px; height:7px; background:var(--cyan); border-radius:50%; box-shadow:0 -97px 0 var(--cyan),0 97px 0 var(--cyan); }
+    .core-label { position:relative; z-index:1; width:126px; text-align:center; font-size:15px; line-height:1.65; color:#effcff; }
+    .core-label strong { display:block; color:var(--cyan); font-size:32px; font-family:Consolas,monospace; }
+    .schedule-list { display:grid; gap:8px; padding:12px; max-height:100%; overflow:auto; }
+    .schedule-item { display:grid; grid-template-columns:120px minmax(0,1fr) 100px; align-items:center; gap:10px; padding:10px 12px; border-left:3px solid var(--cyan); background:rgba(8,49,101,.52); }
+    .schedule-time { color:var(--cyan); font:600 13px Consolas,monospace; }
+    .schedule-case { min-width:0; overflow:hidden; color:#edfaff; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+    .schedule-case small { display:block; margin-top:4px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .schedule-room { color:#b8e9ff; font-size:12px; text-align:right; }
+    .case-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; padding:11px 12px 0; }
+    .case-strip-item { padding:9px 7px; text-align:center; border:1px solid rgba(57,139,239,.4); background:rgba(6,46,95,.7); color:var(--muted); font-size:12px; }
+    .case-strip-item strong { display:block; margin-top:4px; color:#fff; font-size:20px; font-family:Consolas,monospace; }
+    .alarm-table { width:100%; border-collapse:collapse; font-size:12px; }
+    .alarm-table th { color:#8fc8e7; font-weight:400; text-align:left; background:rgba(24,89,154,.25); }
+    .alarm-table td,.alarm-table th { padding:9px 11px; border-bottom:1px solid rgba(91,153,215,.16); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .alarm-table td { color:#d7ecf8; }
+    .alarm-state { display:inline-flex; align-items:center; gap:5px; }
+    .alarm-state:before { content:""; width:6px; height:6px; border-radius:50%; background:var(--orange); box-shadow:0 0 7px currentColor; }
+    .alarm-state.resolved:before { background:var(--green); }
+    .alarm-state.active:before { background:var(--red); }
+    .today-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:12px; }
+    .summary-item { min-width:0; padding:10px 7px; text-align:center; border:1px solid rgba(85,160,232,.27); background:rgba(9,53,108,.45); }
+    .summary-item span { display:block; overflow:hidden; color:var(--muted); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+    .summary-item strong { display:block; margin-top:6px; color:#fff; font:700 21px Consolas,monospace; }
+    .room-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; padding:12px; }
+    .room-card { min-height:55px; display:flex; flex-direction:column; justify-content:center; padding:7px; border:1px solid rgba(107,179,230,.27); background:rgba(16,57,102,.55); overflow:hidden; }
+    .room-card b { overflow:hidden; font-size:12px; font-weight:500; text-overflow:ellipsis; white-space:nowrap; }
+    .room-card small { margin-top:4px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .room-card.online { border-color:rgba(53,215,139,.7); background:rgba(21,120,80,.43); }
+    .room-card.busy { border-color:rgba(255,179,77,.75); background:rgba(121,80,21,.48); }
+    .room-card.offline { border-color:rgba(255,95,114,.68); background:rgba(120,32,48,.45); }
+    .stream-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:12px; }
+    .stream-tile { position:relative; min-height:86px; display:flex; align-items:center; justify-content:center; overflow:hidden; background:linear-gradient(145deg,#10263d,#070f1c); border:1px solid rgba(255,179,77,.58); }
+    .stream-tile:before { content:"实时视频"; color:rgba(193,221,241,.6); font-size:12px; }
+    .stream-tile span { position:absolute; left:6px; right:6px; bottom:5px; padding:3px 4px; overflow:hidden; color:#eaf8ff; background:rgba(1,10,23,.68); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+    .stream-tile.empty { border-color:rgba(100,135,171,.45); }
+    .stream-tile.empty:before { content:"暂无在线流"; color:rgba(160,190,215,.35); }
+    .empty-tip { padding:18px 12px; color:var(--muted); font-size:13px; text-align:center; }
+    @keyframes screen-spin { to { transform:rotate(360deg); } }
+    @media (max-width:1180px) { .workflow-ribbon { grid-template-columns:repeat(4,1fr); } .screen-grid { grid-template-columns:1fr 1.55fr; } .right-column { grid-column:1 / -1; grid-template-columns:1fr 1.4fr 1.4fr; } .right-column > .screen-panel { min-height:230px; } }
+    @media (max-width:780px) { .command-screen { padding:8px; } .screen-header { height:56px; justify-content:flex-start; } .screen-title { font-size:18px; letter-spacing:2px; } .screen-meta { top:19px; font-size:11px; } .screen-meta #screen-date { display:none; } .workflow-ribbon,.screen-grid,.left-column,.center-column,.right-column { display:grid; grid-template-columns:1fr; } .workflow-node:after { display:none; } .left-column,.center-column,.right-column { grid-template-rows:none; } .screen-panel { min-height:220px; } .overview { min-height:300px; } .case-strip { grid-template-columns:repeat(2,1fr); } .schedule-item { grid-template-columns:1fr; gap:4px; } .schedule-room { text-align:left; } }
+  </style>
 </head>
-
 <body>
-  <div id="ID_device_dashboard" style="padding:16px">
-    <div class="layui-card">
-      <div class="layui-card-header">设备概览</div>
-      <div class="layui-card-body">
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
-          <div style="padding:14px;background:#f8f8f8;border-left:3px solid #1e9fff"><div style="color:#666">已注册设备</div><strong id="ID_device_total" style="font-size:28px">0</strong></div>
-          <div style="padding:14px;background:#f8f8f8;border-left:3px solid #16baaa"><div style="color:#666">已启用接入</div><strong id="ID_device_enabled" style="font-size:28px;color:#16baaa">0</strong></div>
-          <div style="padding:14px;background:#f8f8f8;border-left:3px solid #5fb878"><div style="color:#666">在线设备</div><strong id="ID_device_online" style="font-size:28px;color:#5fb878">0</strong></div>
-          <div style="padding:14px;background:#f8f8f8;border-left:3px solid #ffb800"><div style="color:#666">待接入或离线</div><strong id="ID_device_attention" style="font-size:28px;color:#ffb800">0</strong></div>
-        </div>
+  <main class="command-screen" id="command-screen">
+    <header class="screen-header">
+      <h1 class="screen-title">执法办案管理中心</h1>
+      <div class="screen-meta"><span id="screen-date">--</span><button type="button" class="screen-action" id="screen-fullscreen">全屏</button></div>
+    </header>
+    <section class="workflow-ribbon" aria-label="办案流程主线">
+      <div class="workflow-node"><span>01 案件录入</span><strong id="flow-intake">0</strong></div><div class="workflow-node"><span>02 设备就绪</span><strong id="flow-ready">0</strong></div><div class="workflow-node"><span>03 案件排期</span><strong id="flow-scheduled">0</strong></div><div class="workflow-node handling"><span>04 开始办案</span><strong id="flow-handling">0</strong></div><div class="workflow-node"><span>05 笔录/音视频</span><strong id="flow-evidence">0</strong></div><div class="workflow-node"><span>06 案件办结</span><strong id="flow-closed">0</strong></div><div class="workflow-node"><span>07 材料归档</span><strong id="flow-archived">0</strong></div>
+    </section>
+    <section class="screen-grid">
+      <div class="left-column">
+        <section class="screen-panel"><div class="panel-title">设备接入态势</div><div class="chart" id="device-chart"></div></section>
+        <section class="screen-panel"><div class="panel-title">案件办理分析</div><div class="chart" id="case-chart"></div></section>
+        <section class="screen-panel"><div class="panel-title">近七日告警趋势</div><div class="chart" id="alarm-chart"></div></section>
       </div>
-    </div>
-    <div class="layui-card" style="margin-top:16px">
-      <div class="layui-card-header">全部设备 <button type="button" id="ID_device_add" class="layui-btn layui-btn-xs" style="float:right;margin-top:6px"><i class="layui-icon layui-icon-addition"></i> 新建设备</button></div>
-      <div class="layui-card-body" style="padding-top:0">
-        <table class="layui-hide" id="ID_device_table"></table>
+      <div class="center-column">
+        <section class="screen-panel"><div class="overview"><div class="metric-column"><div class="overview-metric"><span>在线设备</span><strong id="metric-online">0</strong><span>台</span></div><div class="overview-metric"><span>活跃告警</span><strong id="metric-alarms">0</strong><span>条</span></div></div><div class="core-orbit"><div class="core-label">办案区当前使用率<strong id="metric-usage">0%</strong></div></div><div class="metric-column"><div class="overview-metric"><span>可用谈话室</span><strong id="metric-rooms">0</strong><span>间</span></div><div class="overview-metric"><span>正在办理</span><strong id="metric-cases">0</strong><span>件</span></div></div></div></section>
+        <section class="screen-panel"><div class="panel-title">近期办案排期</div><div class="schedule-list" id="schedule-list"><div class="empty-tip">暂无待执行的办案排期</div></div></section>
       </div>
-    </div>
-  </div>
-  <div id="ID_perf_dashboard" style="padding: 16px 16px 0 16px">
-    <div class="layui-card">
-      <!-- <div class="layui-card-header">ZLM Perf</div> -->
-      <div class="layui-card-body" style="display: flex">
-        <div id="ID_chart_statistic" style="flex: 1; height: 400px"></div>
-        <div id="ID_chart_workthreadsload" style="flex: 1; height: 400px"></div>
-        <div id="ID_chart_threadsload" style="flex: 1; height: 400px"></div>
+      <div class="right-column">
+        <section class="screen-panel"><div class="panel-title">今日概览</div><div class="today-summary"><div class="summary-item"><span>已注册设备</span><strong id="summary-devices">0</strong></div><div class="summary-item"><span>在线率</span><strong id="summary-rate">0%</strong></div><div class="summary-item"><span>谈话室</span><strong id="summary-rooms">0</strong></div></div></section>
+        <section class="screen-panel"><div class="panel-title">谈话室管理</div><div class="room-list" id="room-list"><div class="empty-tip">正在加载房间...</div></div></section>
+        <section class="screen-panel"><div class="panel-title">视频监控</div><div class="stream-grid" id="stream-grid"><div class="stream-tile empty"></div><div class="stream-tile empty"></div><div class="stream-tile empty"></div><div class="stream-tile empty"></div></div></section>
       </div>
-    </div>
-  </div>
-
-  <div id="ID_host_perf_dashboard" style="padding: 16px 16px 0 16px">
-    <div class="layui-card">
-      <!-- <div class="layui-card-header">Host Perf</div> -->
-      <div class="layui-card-body" style="display: flex">
-        <div id="ID_chart_cpu" style="flex: 1; height: 400px"></div>
-        <div id="ID_chart_memory" style="flex: 1; height: 400px"></div>
-        <div id="ID_chart_disk" style="flex: 1; height: 400px"></div>
-        <div id="ID_chart_network" style="flex: 1; height: 400px"></div>
-      </div>
-    </div>
-  </div>
-
+    </section>
+  </main>
   <script>
-    layui.use(["table", "layer", "jquery"], function () {
-      let table = layui.table;
-      let layer = layui.layer;
-      let $ = layui.jquery;
-
-      let statisticTimer = null;
-      let workThreadsLoadTimer = null;
-      let threadsLoadTimer = null;
-      let hostSatesTimer = null;
-      let deviceTimer = null;
-      const currentPageUrl = window.streamUiPageUrl || "./pages/home.html";
-      const isOperationsView = new URLSearchParams(currentPageUrl.split("?")[1] || "").get("view") === "ops";
-
-      $("#ID_device_dashboard").toggle(!isOperationsView);
-      $("#ID_perf_dashboard, #ID_host_perf_dashboard").toggle(isOperationsView);
-
-      // 存储最近10次系统数据
-      if (window.historyData == undefined) {
-        window.historyData = [];
+    layui.use(["jquery"], function () {
+      const $ = layui.jquery;
+      const chartTextStyle = { color:"#9bc9e3", fontSize:11 };
+      const charts = ["device-chart","case-chart","alarm-chart"].map(function (id) { return echarts.init(document.getElementById(id)); });
+      let refreshTimer = null;
+      function value(data, selector) { $(selector).text(data == null ? 0 : data); }
+      function safeList(response) { return response && response.code === 0 && Array.isArray(response.data) ? response.data : []; }
+      function stateName(status) { return { active:"待处置", acknowledged:"已确认", resolved:"已解除" }[status] || status || "未知"; }
+      function escapeHtml(text) { return String(text || "-").replace(/[&<>'"]/g, function (item) { return ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[item]; }); }
+      function formatTime(time) { if (!time) return "-"; const date = new Date(time); return Number.isNaN(date.getTime()) ? String(time).replace("T"," ").slice(0,19) : date.toLocaleString("zh-CN", { hour12:false }); }
+      function updateClock() { const date = new Date(); $("#screen-date").text(date.toLocaleString("zh-CN", { hour12:false }) + " 星期" + "日一二三四五六"[date.getDay()]); }
+      function initChartData(devices, stages, alarms) {
+        const online = devices.filter(function (item) { return item.status === "online"; }).length;
+        const enabledOffline = devices.filter(function (item) { return item.enabled && item.status !== "online"; }).length;
+        const disabled = devices.length - online - enabledOffline;
+        charts[0].setOption({ tooltip:{ trigger:"item" }, legend:{ bottom:5, textStyle:chartTextStyle }, series:[{ type:"pie", radius:["38%","66%"], avoidLabelOverlap:true, label:{ color:"#d5efff", formatter:"{b}\n{c}" }, data:[{ name:"在线", value:online, itemStyle:{ color:"#35d78b" } },{ name:"离线", value:enabledOffline, itemStyle:{ color:"#ffb34d" } },{ name:"未启用", value:Math.max(0,disabled), itemStyle:{ color:"#477caa" } }] }] }, true);
+        const workflowStates = [{ key:"intake", name:"录入", color:"#3187ff" },{ key:"ready", name:"就绪", color:"#26dfff" },{ key:"scheduled", name:"排期", color:"#9b7cff" },{ key:"handling", name:"办案", color:"#ffb34d" },{ key:"evidence", name:"证据", color:"#ff6b8b" },{ key:"closed", name:"办结", color:"#35d78b" },{ key:"archived", name:"归档", color:"#78a7c8" }];
+        charts[1].setOption({ tooltip:{ trigger:"axis" }, grid:{ top:30,left:38,right:18,bottom:42 }, xAxis:{ type:"category", data:workflowStates.map(function (item) { return item.name; }), axisLabel:chartTextStyle, axisLine:{ lineStyle:{ color:"#37658d" } } }, yAxis:{ type:"value", minInterval:1, axisLabel:chartTextStyle, splitLine:{ lineStyle:{ color:"rgba(83,142,190,.18)" } } }, series:[{ type:"bar", barWidth:"55%", data:workflowStates.map(function (item) { return { value:Number(stages[item.key] || 0), itemStyle:{ color:item.color } }; }) }] }, true);
+        const labels = []; const trend = [];
+        for (let offset = 6; offset >= 0; offset -= 1) { const date = new Date(); date.setHours(0,0,0,0); date.setDate(date.getDate() - offset); const next = new Date(date); next.setDate(next.getDate() + 1); labels.push((date.getMonth() + 1) + "/" + date.getDate()); trend.push(alarms.filter(function (alarm) { const occurred = new Date(alarm.occurred_at || alarm.created_at); return occurred >= date && occurred < next; }).length); }
+        charts[2].setOption({ tooltip:{ trigger:"axis" }, grid:{ top:24,left:38,right:18,bottom:30 }, xAxis:{ type:"category", boundaryGap:false, data:labels, axisLabel:chartTextStyle, axisLine:{ lineStyle:{ color:"#37658d" } } }, yAxis:{ type:"value", minInterval:1, axisLabel:chartTextStyle, splitLine:{ lineStyle:{ color:"rgba(83,142,190,.18)" } } }, series:[{ type:"line", smooth:true, symbol:"circle", symbolSize:6, data:trend, lineStyle:{ color:"#26dfff", width:2 }, itemStyle:{ color:"#26dfff" }, areaStyle:{ color:"rgba(38,223,255,.16)" } }] }, true);
       }
-
-      window.isPolling = true; // 进入页面启动轮询
-
-      let chartStatistic = echarts.init(
-        document.getElementById("ID_chart_statistic")
-      );
-      let chartWorkThreadsLoad = echarts.init(
-        document.getElementById("ID_chart_workthreadsload")
-      );
-      let chartThreadsLoad = echarts.init(
-        document.getElementById("ID_chart_threadsload")
-      );
-      let chartCpu = echarts.init(document.getElementById("ID_chart_cpu"));
-      let chartMemory = echarts.init(
-        document.getElementById("ID_chart_memory")
-      );
-      let chartDisk = echarts.init(document.getElementById("ID_chart_disk"));
-      let chartNetwork = echarts.init(
-        document.getElementById("ID_chart_network")
-      );
-
-      function renderStatisticChart() {
-        $.ajax({
-          url: "/api/perf/statistic",
-          type: "GET",
-          dataType: "json",
-          timeout: 10000,
-          success: function (res) {
-            if (res.code === 0) {
-              chartStatistic.setOption({
-                title: {
-                  text: "Statistic",
-                  left: "center",
-                  textStyle: { fontSize: 14 },
-                },
-                tooltip: { confine: true },
-                xAxis: {
-                  type: "category",
-                  data: Object.keys(res.data),
-                  axisLabel: { rotate: 45, fontSize: 10 },
-                },
-                yAxis: { type: "value" },
-                series: [
-                  {
-                    type: "bar",
-                    data: Object.values(res.data),
-                    itemStyle: { color: "#009688" },
-                  },
-                ],
-              });
-            }
-          },
-          complete: function () {
-            // 无论成功或失败，都等待 3 秒后再次请求
-            statisticTimer = setTimeout(renderStatisticChart, 3000);
-          },
-        });
+      function renderRooms(rooms, devices) {
+        const deviceMap = new Map(devices.map(function (item) { return [item.device_id,item]; }));
+        const visibleRooms = rooms.slice(0,15);
+        if (!visibleRooms.length) { $("#room-list").html('<div class="empty-tip">暂无已配置谈话室</div>'); return; }
+        $("#room-list").html(visibleRooms.map(function (room) {
+          const roomDevices = room.devices || room.device_ids || [];
+          const first = Array.isArray(roomDevices) ? roomDevices[0] : null;
+          const boundDevice = deviceMap.get(typeof first === "string" ? first : first && first.device_id);
+          const active = Number(room.active_session_count || room.scheduled_now_count || 0) > 0;
+          const status = active ? "busy" : boundDevice ? (boundDevice.status === "online" ? "online" : "offline") : "busy";
+          const label = active ? "正在办案" : boundDevice ? (boundDevice.status === "online" ? "设备在线" : "设备离线") : "未绑定设备";
+          return '<div class="room-card ' + status + '"><b>' + escapeHtml(room.name || room.room_name || "未命名房间") + '</b><small>' + label + '</small></div>';
+        }).join(""));
       }
-      function renderWorkThreadsLoadChart() {
-        $.ajax({
-          url: "/api/perf/work-threads-load",
-          type: "GET",
-          dataType: "json",
-          timeout: 10000,
-          success: function (res) {
-            if (res.code === 0) {
-              let delays = [];
-              let loads = [];
-              let names = [];
-
-              res.data.forEach(function (item) {
-                names.push(item.name.replace("work poller ", "work "));
-                delays.push(item.delay);
-                loads.push(item.load);
-              });
-
-              chartWorkThreadsLoad.setOption({
-                title: {
-                  text: "WorkThreadsLoad",
-                  left: "center",
-                  textStyle: { fontSize: 14 },
-                },
-                tooltip: {
-                  trigger: "axis",
-                  confine: true,
-                },
-                legend: {
-                  data: ["延迟", "负载"],
-                  bottom: "5%",
-                  itemWidth: 12,
-                  itemHeight: 8,
-                },
-                xAxis: [
-                  {
-                    type: "category",
-                    data: names,
-                    axisLabel: { rotate: 45, fontSize: 10 },
-                  },
-                ],
-                yAxis: [
-                  { type: "value", name: "延迟ms", position: "left" },
-                  { type: "value", name: "负载%", position: "right" },
-                ],
-                series: [
-                  {
-                    name: "延迟",
-                    type: "line",
-                    data: delays,
-                    yAxisIndex: 0,
-                    itemStyle: { color: "#5B8FF9" },
-                  },
-                  {
-                    name: "负载",
-                    type: "bar",
-                    data: loads,
-                    yAxisIndex: 1,
-                    itemStyle: { color: "#D7504B" },
-                  },
-                ],
-              });
-            }
-          },
-          complete: function () {
-            workThreadsLoadTimer = setTimeout(
-              renderWorkThreadsLoadChart,
-              3000
-            );
-          },
-        });
+      function renderStreams(streams) {
+        const tiles = streams.slice(0,4).map(function (stream) { return '<div class="stream-tile"><span>' + escapeHtml((stream.app || "live") + "/" + (stream.stream || "未知流")) + '</span></div>'; });
+        while (tiles.length < 4) tiles.push('<div class="stream-tile empty"></div>');
+        $("#stream-grid").html(tiles.join(""));
       }
-      function renderThreadsLoadChart() {
-        $.ajax({
-          url: "/api/perf/threads-load",
-          type: "GET",
-          dataType: "json",
-          timeout: 10000,
-          success: function (res) {
-            if (res.code === 0) {
-              let delays = [];
-              let loads = [];
-              let names = [];
-
-              res.data.forEach(function (item) {
-                names.push(item.name.replace("event poller ", "event "));
-                delays.push(item.delay);
-                loads.push(item.load);
-              });
-
-              chartThreadsLoad.setOption({
-                title: {
-                  text: "ThreadsLoad",
-                  left: "center",
-                  textStyle: { fontSize: 14 },
-                },
-                tooltip: { trigger: "axis", confine: true },
-                legend: {
-                  data: ["延迟", "负载"],
-                  bottom: "5%",
-                  itemWidth: 12,
-                  itemHeight: 8,
-                },
-                xAxis: [
-                  {
-                    type: "category",
-                    data: names,
-                    axisLabel: { rotate: 45, fontSize: 10 },
-                  },
-                ],
-                yAxis: [
-                  { type: "value", name: "延迟ms", position: "left" },
-                  { type: "value", name: "负载%", position: "right" },
-                ],
-                series: [
-                  {
-                    name: "延迟",
-                    type: "line",
-                    data: delays,
-                    yAxisIndex: 0,
-                    itemStyle: { color: "#5B8FF9" },
-                  },
-                  {
-                    name: "负载",
-                    type: "bar",
-                    data: loads,
-                    yAxisIndex: 1,
-                    itemStyle: { color: "#D7504B" },
-                  },
-                ],
-              });
-            }
-          },
-          complete: function () {
-            threadsLoadTimer = setTimeout(renderThreadsLoadChart, 3000);
-          },
-        });
+      function renderAlarms(alarms) {
+        const rows = alarms.slice(0,4);
+        if (!rows.length) { $("#alarm-table-body").html('<tr><td colspan="4" class="empty-tip">当前没有报警记录</td></tr>'); return; }
+        $("#alarm-table-body").html(rows.map(function (alarm) { return '<tr><td><span class="alarm-state ' + escapeHtml(alarm.status) + '">' + stateName(alarm.status) + '</span></td><td title="' + escapeHtml(alarm.message) + '">' + escapeHtml(alarm.message) + '</td><td>' + escapeHtml(alarm.device_name || alarm.device_id || alarm.room_name || "平台") + '</td><td>' + formatTime(alarm.occurred_at || alarm.created_at) + '</td></tr>'; }).join(""));
       }
-
-      function renderHostStatsChart() {
-        $.ajax({
-          url: "/api/perf/host-stats",
-          type: "GET",
-          dataType: "json",
-          timeout: 10000,
-          success: function (res) {
-            if (res.code === 0) {
-              const currentData = res.data;
-
-              // 把当前数据加入前端维护的历史
-              window.historyData.push(currentData);
-
-              // 只保留最近 5 条
-              if (window.historyData.length > 5) {
-                window.historyData.shift(); // 删除最老的一条
-              }
-
-              const dataList = window.historyData;
-
-              // ----------------------------
-              // 1. CPU 使用
-              // ----------------------------
-              let times = dataList.map((d) => d.time);
-              let cpuData = dataList.map((d) => d.cpu);
-
-              chartCpu.setOption({
-                title: {
-                  text: "CPU 使用",
-                  left: "center",
-                  textStyle: { fontSize: 14 },
-                },
-                tooltip: {
-                  trigger: "axis",
-                  confine: true,
-                  formatter: function (params) {
-                    const p = Array.isArray(params) ? params[0] : params;
-                    const time =
-                      (p && (p.axisValue != null ? p.axisValue : p.name)) || "";
-                    const cpu =
-                      p && (p.value != null ? p.value : p.data != null ? p.data : "");
-                    return time + "<br/>CPU负载: " + cpu + "%";
-                  },
-                },
-                legend: {
-                  data: ["CPU"],
-                  bottom: "5%",
-                  itemWidth: 12,
-                  itemHeight: 8,
-                },
-                xAxis: {
-                  type: "category",
-                  boundaryGap: false,
-                  data: times,
-                  axisLabel: {
-                    rotate: 45, // 标签倾斜，避免重叠
-                    fontSize: 10, // 字号统一
-                  },
-                },
-                yAxis: {
-                  type: "value",
-                  axisLabel: {
-                    formatter: "{value}%", // 显示百分比
-                  },
-                  min: 0,
-                  max: 100,
-                },
-                series: [
-                  {
-                    name: "CPU",
-                    type: "line",
-                    data: cpuData,
-                    smooth: true,
-                    lineStyle: {
-                      color: "#73c0de",
-                      width: 2,
-                    },
-                    itemStyle: {
-                      color: "#73c0de",
-                    },
-                    areaStyle: {
-                      color: "rgba(115, 192, 222, 0.5)",
-                    },
-                  },
-                ],
-              });
-
-              // ----------------------------
-              // 2. 内存使用
-              // ----------------------------
-
-              // let memUsed = parseFloat(latest.memory.used);
-              // let memTotal = parseFloat(latest.memory.total);
-
-              chartMemory.setOption({
-                title: {
-                  text: "内存使用",
-                  left: "center",
-                  textStyle: { fontSize: 14 },
-                },
-                tooltip: {
-                  trigger: "axis",
-                  confine: true,
-                  formatter: function (params) {
-                    const p = Array.isArray(params) ? params[0] : params;
-                    const idx = p && p.dataIndex != null ? p.dataIndex : 0;
-                    const item = dataList[idx] || {};
-                    const mem = item.memory || {};
-                    const total = parseFloat(mem.total);
-                    const used = parseFloat(mem.used);
-                    const free = total - used;
-                    const fmt = (n) => (Number.isFinite(n) ? n.toFixed(1) : "-");
-                    const time =
-                      item.time ||
-                      ((p && (p.axisValue != null ? p.axisValue : p.name)) || "");
-                    return (
-                      time +
-                      "<br/>总内存量: " +
-                      fmt(total) +
-                      " GB<br/>已用: " +
-                      fmt(used) +
-                      " GB<br/>剩余: " +
-                      fmt(free) +
-                      " GB"
-                    );
-                  },
-                },
-                legend: {
-                  data: ["已用内存"],
-                  bottom: "5%",
-                  itemWidth: 12,
-                  itemHeight: 8,
-                },
-                xAxis: {
-                  type: "category",
-                  boundaryGap: false, // 让线条贴近边缘
-                  data: dataList.map((item) => item.time), // 假设 dataList 包含所有历史数据点
-                  axisLabel: {
-                    rotate: 45, // 标签倾斜显示，避免重叠
-                    fontSize: 10,
-                  },
-                },
-                yAxis: {
-                  type: "value",
-                  axisLabel: {
-                    formatter: "{value} GB",
-                  },
-                  max: parseFloat(currentData.memory.total), // 设置 y 轴的最大值为总内存
-                },
-                series: [
-                  {
-                    name: "已用内存",
-                    type: "line",
-                    data: dataList.map((item) =>
-                      parseFloat(item.memory.used)
-                    ), // 已用内存数据
-                    lineStyle: {
-                      color: "#5470c6", // 线条颜色
-                    },
-                    itemStyle: {
-                      color: "#5470c6", // 折点颜色
-                    },
-                    areaStyle: {},
-                  },
-                ],
-              });
-
-              // ----------------------------
-              // 3. 磁盘使用（多挂载点）
-              // ----------------------------
-              let disks = Array.isArray(currentData.disks)
-                ? currentData.disks
-                : [];
-
-              if (!disks.length && currentData.disk) {
-                disks = [
-                  {
-                    device: "disk",
-                    mountpoint: "/",
-                    fstype: "",
-                    used: currentData.disk.used,
-                    total: currentData.disk.total,
-                  },
-                ];
-              }
-
-              let diskNames = disks.map(function (d) {
-                if (d.device) {
-                  return d.device;
-                }
-                if (d.mountpoint) {
-                  return d.mountpoint;
-                }
-                return "磁盘";
-              });
-
-              let diskUsedList = disks.map(function (d) {
-                return parseFloat(d.used);
-              });
-              let diskTotalList = disks.map(function (d) {
-                return parseFloat(d.total);
-              });
-              let diskFreeList = diskTotalList.map(function (total, idx) {
-                return parseFloat((total - diskUsedList[idx]).toFixed(1));
-              });
-              let diskMaxTotal =
-                diskTotalList.length > 0
-                  ? Math.max.apply(null, diskTotalList)
-                  : 0;
-
-              chartDisk.setOption({
-                title: {
-                  text: "磁盘使用",
-                  left: "center",
-                  textStyle: { fontSize: 14 },
-                },
-                legend: {
-                  data: ["已用", "剩余"],
-                  bottom: "5%",
-                  itemWidth: 12,
-                  itemHeight: 8,
-                },
-                grid: {
-                  left: "8%",
-                  right: "8%",
-                  top: "15%",
-                  bottom: "20%",
-                },
-                xAxis: {
-                  type: "value",
-                  max: diskMaxTotal,
-                  axisLabel: {
-                    formatter: "{value} GB",
-                    fontSize: 10,
-                  },
-                  splitLine: { show: false },
-                  axisTick: { show: true },
-                },
-                yAxis: {
-                  type: "category",
-                  data: diskNames,
-                  axisLabel: { show: true },
-                },
-                series: [
-                  {
-                    name: "已用",
-                    type: "bar",
-                    stack: "disk",
-                    label: {
-                      show: true,
-                      position: "inside",
-                      formatter: function (params) {
-                        return diskUsedList[params.dataIndex].toFixed(1) + " GB";
-                      },
-                      color: "#fff",
-                    },
-                    itemStyle: {
-                      color: "#91cc75",
-                    },
-                    data: diskUsedList,
-                  },
-                  {
-                    name: "剩余",
-                    type: "bar",
-                    stack: "disk",
-                    label: {
-                      show: true,
-                      position: "inside",
-                      formatter: function (params) {
-                        return diskFreeList[params.dataIndex].toFixed(1) + " GB";
-                      },
-                    },
-                    itemStyle: {
-                      color: "#e0e0e0",
-                    },
-                    data: diskFreeList,
-                  },
-                ],
-                tooltip: {
-                  confine: true,
-                  formatter: function (params) {
-                    if (!Array.isArray(params)) {
-                      params = [params];
-                    }
-                    var idx =
-                      params.length > 0 && params[0].dataIndex != null
-                        ? params[0].dataIndex
-                        : 0;
-                    var disk = disks[idx] || {};
-                    var used = diskUsedList[idx] || 0;
-                    var total = diskTotalList[idx] || 0;
-                    var free = diskFreeList[idx] || 0;
-                    var name = diskNames[idx] || "磁盘";
-                    return (
-                      name +
-                      "<br/>总容量: " +
-                      total.toFixed(1) +
-                      " GB<br/>已用: " +
-                      used.toFixed(1) +
-                      " GB<br/>剩余: " +
-                      free.toFixed(1) +
-                      " GB"
-                    );
-                  },
-                },
-              });
-
-              // ----------------------------
-              // 4. 带宽使用
-              // ----------------------------
-              let netRecvMbps = [];
-              let netSentMbps = [];
-              let networkTimes = []; // 动态构建，与数据对齐
-
-              // 辅助函数：将 "HH:MM:SS" 转为当日的毫秒时间戳（仅用于差值）
-              function parseTimeToMs(timeStr) {
-                const [h, m, s] = timeStr.split(":").map(Number);
-                return (h * 3600 + m * 60 + s) * 1000;
-              }
-
-              for (let i = 1; i < dataList.length; i++) {
-                const prevTimeMs = parseTimeToMs(times[i - 1]);
-                const currTimeMs = parseTimeToMs(times[i]);
-                const timeDiffSec = (currTimeMs - prevTimeMs) / 1000; // 单位：秒
-
-                // 只有时间差在合理范围（例如 2.5 ~ 3.5 秒）才计算
-                if (timeDiffSec >= 2.5 && timeDiffSec <= 3.5) {
-                  const bytesRecvDiff =
-                    dataList[i].net_io.recv - dataList[i - 1].net_io.recv;
-                  const bytesSentDiff =
-                    dataList[i].net_io.sent - dataList[i - 1].net_io.sent;
-
-                  // 避免负值（理论上不会出现，但防御性编程）
-                  if (bytesRecvDiff < 0 || bytesSentDiff < 0) continue;
-
-                  // 转换为 Mbps: (bytes * 8) / 1_000_000 / seconds
-                  const mbpsRecv = (
-                    (bytesRecvDiff * 8) /
-                    1_000_000 /
-                    timeDiffSec
-                  ).toFixed(2);
-                  const mbpsSent = (
-                    (bytesSentDiff * 8) /
-                    1_000_000 /
-                    timeDiffSec
-                  ).toFixed(2);
-
-                  netRecvMbps.push(parseFloat(mbpsRecv));
-                  netSentMbps.push(parseFloat(mbpsSent));
-                  networkTimes.push(times[i]); // 使用当前时间点作为该速率的代表时间
-                }
-                // 否则：跳过该点，不计入图表
-              }
-
-              // 时间轴对齐：比原始数据少一个点
-              // let networkTimes = times.slice(1);
-
-              chartNetwork.setOption({
-                title: {
-                  text: "带宽使用",
-                  left: "center",
-                  textStyle: { fontSize: 14 },
-                },
-                tooltip: {
-                  trigger: "axis",
-                  confine: true,
-                  formatter: (params) => {
-                    return (
-                      params[0]?.name +
-                      "<br/>" +
-                      params
-                        .map((p) => `${p.seriesName}: ${p.value} Mbps`)
-                        .join("<br/>")
-                    );
-                  },
-                },
-                legend: {
-                  data: ["接收", "发送"],
-                  bottom: "5%",
-                  itemWidth: 12,
-                  itemHeight: 8,
-                },
-                xAxis: {
-                  type: "category",
-                  data: networkTimes,
-                  axisLabel: {
-                    rotate: 45, // 与 memory/cpu 一致
-                    fontSize: 10, // 统一字号
-                  },
-                },
-                yAxis: {
-                  type: "value",
-                  min: 0,
-                  axisLabel: {
-                    formatter: "{value} Mbps", // 显示单位
-                  },
-                },
-                series: [
-                  {
-                    name: "接收",
-                    type: "line",
-                    data: netRecvMbps,
-                    smooth: true,
-                    lineStyle: {
-                      width: 2,
-                      color: "#91cc75", // 绿色：接收
-                    },
-                    itemStyle: {
-                      color: "#91cc75",
-                    },
-                    areaStyle: {
-                      // 轻微填充，增强可读性
-                      color: {
-                        type: "linear",
-                        x: 0,
-                        y: 0,
-                        x2: 0,
-                        y2: 1,
-                        colorStops: [
-                          {
-                            offset: 0,
-                            color: "rgba(145, 204, 117, 0.5)",
-                          },
-                          {
-                            offset: 1,
-                            color: "rgba(145, 204, 117, 0.1)",
-                          },
-                        ],
-                      },
-                    },
-                  },
-                  {
-                    name: "发送",
-                    type: "line",
-                    data: netSentMbps,
-                    smooth: true,
-                    lineStyle: {
-                      width: 2,
-                      color: "#fac858", // 金色：发送
-                    },
-                    itemStyle: {
-                      color: "#fac858",
-                    },
-                    areaStyle: {
-                      // 同样填充
-                      color: {
-                        type: "linear",
-                        x: 0,
-                        y: 0,
-                        x2: 0,
-                        y2: 1,
-                        colorStops: [
-                          {
-                            offset: 0,
-                            color: "rgba(250, 200, 88, 0.5)",
-                          },
-                          {
-                            offset: 1,
-                            color: "rgba(250, 200, 88, 0.1)",
-                          },
-                        ],
-                      },
-                    },
-                  },
-                ],
-              });
-            }
-          },
-          complete: function () {
-            hostSatesTimer = setTimeout(renderHostStatsChart, 3000);
-          },
-        });
+      function renderSchedule(sessions) {
+        if (!sessions.length) { $("#schedule-list").html('<div class="empty-tip">暂无待执行的办案排期</div>'); return; }
+        $("#schedule-list").html(sessions.slice(0, 6).map(function (session) {
+          const start = formatTime(session.planned_start_at).slice(0, 16);
+          const title = (session.case_no || "未编号案件") + " · " + (session.case_name || session.session_no || "办案会话");
+          const location = session.room_name || session.device_name || "待分配房间";
+          return '<div class="schedule-item"><span class="schedule-time">' + escapeHtml(start) + '</span><span class="schedule-case">' + escapeHtml(title) + '<small>' + escapeHtml(session.session_no || "") + '</small></span><span class="schedule-room">' + escapeHtml(location) + '</span></div>';
+        }).join(""));
       }
-
-      function renderDevices() {
-        $.get("/api/devices", function (res) {
-          if (!res || res.code !== 0) return;
-          const devices = res.data || [];
-          const online = devices.filter((item) => item.status === "online");
-          const enabled = devices.filter((item) => item.enabled);
-          const attention = devices.filter((item) => !item.enabled || item.status !== "online");
-          $("#ID_device_total").text(devices.length);
-          $("#ID_device_online").text(online.length);
-          $("#ID_device_enabled").text(enabled.length);
-          $("#ID_device_attention").text(attention.length);
-          table.render({
-            elem: "#ID_device_table",
-            data: devices,
-            page: true,
-            limit: 10,
-            cols: [[
-              { field: "name", title: "设备名称", minWidth: 140 },
-              { field: "device_id", title: "设备 ID", minWidth: 170 },
-              { field: "serial_number", title: "序列号", minWidth: 150, templet: (item) => item.serial_number || "-" },
-              { field: "address", title: "地址", minWidth: 130, templet: (item) => item.address || "-" },
-              { field: "access_key_masked", title: "接入密钥", width: 125, templet: (item) => `${item.access_key_masked} <a lay-event="access-key" title="查看接入密钥"><i class="layui-icon layui-icon-eye"></i></a>` },
-              { field: "enabled", title: "接入", width: 90, templet: (item) => item.enabled ? '<span class="layui-badge layui-bg-green">已启用</span>' : '<span class="layui-badge layui-bg-gray">未启用</span>' },
-              { field: "status", title: "心跳", width: 90, templet: (item) => item.status === "online" ? '<span class="layui-badge layui-bg-green">在线</span>' : '<span class="layui-badge layui-bg-gray">离线</span>' },
-              { field: "last_seen_at", title: "最后心跳", minWidth: 175, templet: (item) => item.last_seen_at || "无心跳" },
-              { title: "操作", width: 210, templet: (item) => `<a class="layui-btn layui-btn-xs" lay-event="edit">编辑</a><a class="layui-btn layui-btn-xs ${item.enabled ? "layui-btn-warm" : "layui-btn-normal"}" lay-event="toggle">${item.enabled ? "停用" : "启用"}</a><a class="layui-btn layui-btn-danger layui-btn-xs" lay-event="delete">删除</a>` }
-            ]]
-          });
-        }).always(function () { deviceTimer = setTimeout(renderDevices, 10000); });
+      function refreshDashboard() {
+        $.when($.get("/api/devices"), $.get("/api/resources/rooms"), $.get("/api/cases"), $.get("/api/alarms"), $.get("/api/stream/streamid-list?schema=fmp4"), $.get("/api/cases/workflow/dashboard")).done(function (deviceRes, roomRes, caseRes, alarmRes, streamRes, workflowRes) {
+          const devices = safeList(deviceRes[0]); const workflow = workflowRes[0] && workflowRes[0].code === 0 ? workflowRes[0].data || {} : {}; const rooms = Array.isArray(workflow.rooms) && workflow.rooms.length ? workflow.rooms : safeList(roomRes[0]); const cases = safeList(caseRes[0]); const alarms = safeList(alarmRes[0]); const streams = safeList(streamRes[0]); const stages = workflow.stages || {};
+          const online = devices.filter(function (item) { return item.status === "online"; }).length;
+          const activeAlarms = alarms.filter(function (item) { return item.status === "active"; }).length;
+          const activeCases = Number(stages.handling == null ? cases.filter(function (item) { return item.status === "handling"; }).length : stages.handling);
+          const availableRooms = rooms.filter(function (room) { return room.enabled !== false; }).length;
+          const usage = availableRooms ? Math.min(100,Math.round(activeCases / availableRooms * 100)) : 0;
+          ["intake","ready","scheduled","handling","evidence","closed","archived"].forEach(function (stage) { value(stages[stage] || 0, "#flow-" + stage); });
+          value(online,"#metric-online"); value(activeAlarms,"#metric-alarms"); value(availableRooms,"#metric-rooms"); value(activeCases,"#metric-cases"); value(usage + "%","#metric-usage");
+          value(devices.length,"#summary-devices"); value(devices.length ? Math.round(online / devices.length * 100) + "%" : "0%","#summary-rate"); value(rooms.length,"#summary-rooms");
+          initChartData(devices,stages,alarms); renderRooms(rooms,devices); renderStreams(streams); renderAlarms(alarms); renderSchedule(workflow.scheduled_sessions || []);
+        }).always(function () { refreshTimer = setTimeout(refreshDashboard,30000); });
       }
-
-      function deviceFormHtml() {
-        return '<form class="layui-form" style="padding:18px"><div class="layui-form-item"><label class="layui-form-label">设备 ID</label><div class="layui-input-block"><input id="ID_device_form_id" class="layui-input" placeholder="建议填审讯主机序列号"></div></div><div class="layui-form-item"><label class="layui-form-label">设备名称</label><div class="layui-input-block"><input id="ID_device_form_name" class="layui-input"></div></div><div class="layui-form-item"><label class="layui-form-label">序列号</label><div class="layui-input-block"><input id="ID_device_form_serial" class="layui-input"></div></div><div class="layui-form-item"><label class="layui-form-label">设备地址</label><div class="layui-input-block"><input id="ID_device_form_address" class="layui-input" placeholder="192.168.1.100"></div></div><div class="layui-form-item"><label class="layui-form-label">设置地址</label><div class="layui-input-block"><input id="ID_device_form_web_url" class="layui-input" placeholder="http://192.168.1.100"></div></div><div class="layui-form-item" id="ID_device_key_row" style="display:none"><label class="layui-form-label">接入密钥</label><div class="layui-input-block" style="display:flex;gap:8px"><input id="ID_device_key_input" type="password" class="layui-input" readonly value="********"><button type="button" id="ID_device_key_view" class="layui-btn layui-btn-primary" title="显示接入密钥"><i class="layui-icon layui-icon-eye"></i></button><button type="button" id="ID_device_key_regenerate" class="layui-btn layui-btn-warm">重新生成</button></div></div><div class="layui-form-item"><label class="layui-form-label">允许接入</label><div class="layui-input-block"><input id="ID_device_form_enabled" type="checkbox" lay-skin="switch"></div></div><div class="layui-form-item"><div class="layui-input-block"><button type="button" id="ID_device_form_save" class="layui-btn">保存</button></div></div></form>';
-      }
-
-      function openDeviceForm(device) {
-        const editing = Boolean(device);
-        layer.open({ type: 1, title: editing ? "编辑设备" : "新建设备", area: ["560px", "auto"], content: deviceFormHtml(), success: function (layerElement) {
-          $("#ID_device_form_id").val(editing ? device.device_id : "").prop("disabled", editing);
-          $("#ID_device_form_name").val(editing ? device.name : "");
-          $("#ID_device_form_serial").val(editing ? device.serial_number || "" : "");
-          $("#ID_device_form_address").val(editing ? device.address || "" : "");
-          $("#ID_device_form_web_url").val(editing ? device.web_url || "" : "");
-          $("#ID_device_form_enabled").prop("checked", editing && Boolean(device.enabled));
-          if (editing) {
-            $("#ID_device_key_row").show();
-            $("#ID_device_key_view").on("click", function () {
-              $.get("/api/devices/" + encodeURIComponent(device.device_id) + "/access-key", function (res) {
-                if (res.code !== 0) return layer.msg((res.msg || "无法查看") + "；请使用重新生成");
-                const input = $("#ID_device_key_input").val(res.access_key);
-                input.attr("type", input.attr("type") === "password" ? "text" : "password");
-              });
-            });
-            $("#ID_device_key_regenerate").on("click", function () {
-              $.ajax({ url: "/api/devices/" + encodeURIComponent(device.device_id) + "/access-key", type: "POST", success: function (res) {
-                if (res.code !== 0) return layer.msg(res.msg || "重新生成失败");
-                $("#ID_device_key_input").val(res.access_key).attr("type", "text");
-                layer.msg("新密钥已生成，请同步保存到设备");
-                renderDevices();
-              } });
-            });
-          }
-          $("#ID_device_form_save").on("click", function () {
-            const data = { device_id: $("#ID_device_form_id").val().trim(), name: $("#ID_device_form_name").val().trim(), serial_number: $("#ID_device_form_serial").val().trim(), address: $("#ID_device_form_address").val().trim(), web_url: $("#ID_device_form_web_url").val().trim(), enabled: $("#ID_device_form_enabled").prop("checked") };
-            if (!data.name || (!editing && !data.device_id)) return layer.msg("请填写设备 ID 和设备名称");
-            $.ajax({ url: editing ? "/api/devices/" + encodeURIComponent(device.device_id) : "/api/devices", type: editing ? "PUT" : "POST", contentType: "application/json", data: JSON.stringify(data), success: function (res) { if (res.code !== 0) return layer.msg(res.msg || "保存失败"); const finish = function () { layer.closeAll(); renderDevices(); }; if (res.access_key) return layer.alert("设备接入密钥：" + res.access_key + "<br>请在审讯主机中保存该密钥。", { title: "设备已预创建" }, finish); layer.msg("设备已保存"); finish(); }, error: function (xhr) { layer.msg((xhr.responseJSON && xhr.responseJSON.msg) || "请求失败"); } });
-          });
-        }});
-      }
-
-      $("#ID_device_add").on("click", function () { openDeviceForm(); });
-      table.on("tool(ID_device_table)", function (obj) {
-        const device = obj.data;
-        if (obj.event === "access-key") return $.get("/api/devices/" + encodeURIComponent(device.device_id) + "/access-key", function (res) {
-          if (res.code !== 0) return layer.msg((res.msg || "无法查看") + "；请在编辑设备中重新生成");
-          layer.alert('<div style="word-break:break-all;font-family:monospace">' + res.access_key + '</div>', { title: "设备接入密钥 - " + device.name });
-        });
-        if (obj.event === "edit") return openDeviceForm(device);
-        if (obj.event === "toggle") return $.ajax({ url: "/api/devices/" + encodeURIComponent(device.device_id), type: "PUT", contentType: "application/json", data: JSON.stringify({ enabled: !device.enabled }), success: function (res) { if (res.code === 0) { layer.msg(device.enabled ? "已停用设备接入" : "已启用设备接入"); renderDevices(); } else layer.msg(res.msg || "操作失败"); } });
-        if (obj.event === "delete") layer.confirm("删除设备后，其通道与录像计划也会被删除，确定继续吗？", { title: "删除设备" }, function (index) { $.ajax({ url: "/api/devices/" + encodeURIComponent(device.device_id), type: "DELETE", success: function (res) { if (res.code === 0) { layer.close(index); layer.msg("设备已删除"); renderDevices(); } else layer.msg(res.msg || "删除失败"); } }); });
-      });
-
-      window.clearnTimer = function () {
-        if (statisticTimer !== null) {
-          clearTimeout(statisticTimer);
-          statisticTimer = null;
-        }
-        if (threadsLoadTimer !== null) {
-          clearTimeout(threadsLoadTimer);
-          threadsLoadTimer = null;
-        }
-        if (workThreadsLoadTimer !== null) {
-          clearTimeout(workThreadsLoadTimer);
-          workThreadsLoadTimer = null;
-        }
-        if (hostSatesTimer !== null) {
-          clearTimeout(hostSatesTimer);
-          hostSatesTimer = null;
-        }
-        if (deviceTimer !== null) {
-          clearTimeout(deviceTimer);
-          deviceTimer = null;
-        }
-      };
-
-      if (isOperationsView) {
-        renderStatisticChart();
-        renderThreadsLoadChart();
-        renderWorkThreadsLoadChart();
-        renderHostStatsChart();
-      } else {
-        renderDevices();
-      }
+      $("#screen-fullscreen").on("click", function () { const root = document.getElementById("command-screen"); if (document.fullscreenElement) document.exitFullscreen(); else if (root.requestFullscreen) root.requestFullscreen(); });
+      $(window).on("resize", function () { charts.forEach(function (chart) { chart.resize(); }); });
+      window.clearnTimer = function () { if (refreshTimer) clearTimeout(refreshTimer); refreshTimer = null; charts.forEach(function (chart) { chart.dispose(); }); };
+      updateClock(); setInterval(updateClock,1000); refreshDashboard();
     });
   </script>
 </body>
-
 </html>

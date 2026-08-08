@@ -562,6 +562,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 case_id INTEGER NOT NULL,
                 device_id TEXT NOT NULL,
+                room_id INTEGER,
                 session_no TEXT NOT NULL,
                 session_type TEXT NOT NULL DEFAULT 'interrogation',
                 recording_mode TEXT NOT NULL DEFAULT 'disk',
@@ -578,11 +579,14 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL,
                 UNIQUE(case_id, session_no),
                 FOREIGN KEY(case_id) REFERENCES case_info(id) ON DELETE CASCADE,
-                FOREIGN KEY(device_id) REFERENCES device(device_id) ON DELETE RESTRICT
+                FOREIGN KEY(device_id) REFERENCES device(device_id) ON DELETE RESTRICT,
+                FOREIGN KEY(room_id) REFERENCES interview_room(id) ON DELETE SET NULL
             )
             """
         )
         session_columns = {row[1] for row in db.execute("PRAGMA table_info(case_session)").fetchall()}
+        if "room_id" not in session_columns:
+            db.execute("ALTER TABLE case_session ADD COLUMN room_id INTEGER")
         if "recording_mode" not in session_columns:
             db.execute("ALTER TABLE case_session ADD COLUMN recording_mode TEXT NOT NULL DEFAULT 'disk'")
         if "planned_start_at" not in session_columns:
@@ -2095,10 +2099,11 @@ def _add_case_audit(*, db: sqlite3.Connection, case_id: int, action: str, actor:
 
 
 def _session_query() -> str:
-    return """SELECT s.*, c.case_no, c.name AS case_name, d.name AS device_name,
+    return """SELECT s.*, c.case_no, c.name AS case_name, d.name AS device_name, r.name AS room_name,
               COUNT(DISTINCT t.id) AS transcript_count, COUNT(DISTINCT m.id) AS media_count
               FROM case_session s JOIN case_info c ON c.id=s.case_id
               JOIN device d ON d.device_id=s.device_id
+              LEFT JOIN interview_room r ON r.id=s.room_id
               LEFT JOIN case_transcript t ON t.session_id=s.id
               LEFT JOIN case_media_asset m ON m.session_id=s.id"""
 
@@ -2126,7 +2131,7 @@ def list_case_sessions(*, case_id: int | None = None, device_id: str | None = No
     return [dict(row) for row in rows]
 
 
-def create_case_session(*, case_id: int, device_id: str, session_no: str, session_type: str, recording_mode: str, planned_start_at: str | None, planned_end_at: str | None, location: str, host_name: str, participant_summary: str, created_by: str) -> dict[str, Any] | None:
+def create_case_session(*, case_id: int, device_id: str, room_id: int | None, session_no: str, session_type: str, recording_mode: str, planned_start_at: str | None, planned_end_at: str | None, location: str, host_name: str, participant_summary: str, created_by: str) -> dict[str, Any] | None:
     now = _utc_now_iso()
     with get_db() as db:
         assignment = db.execute("SELECT status FROM case_device_assignment WHERE case_id=? AND device_id=?", (case_id, device_id)).fetchone()
@@ -2134,13 +2139,13 @@ def create_case_session(*, case_id: int, device_id: str, session_no: str, sessio
             return None
         try:
             cur = db.execute(
-                     """INSERT INTO case_session (case_id, device_id, session_no, session_type, recording_mode, planned_start_at, planned_end_at, location, host_name, participant_summary, created_by, created_at, updated_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                     (case_id, device_id, session_no, session_type, recording_mode, planned_start_at, planned_end_at, location, host_name, participant_summary, created_by, now, now),
+                     """INSERT INTO case_session (case_id, device_id, room_id, session_no, session_type, recording_mode, planned_start_at, planned_end_at, location, host_name, participant_summary, created_by, created_at, updated_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     (case_id, device_id, room_id, session_no, session_type, recording_mode, planned_start_at, planned_end_at, location, host_name, participant_summary, created_by, now, now),
             )
         except sqlite3.IntegrityError:
             return None
-        _add_case_audit(db=db, case_id=case_id, session_id=int(cur.lastrowid), action="session.created", actor=created_by, detail={"device_id": device_id, "session_no": session_no, "session_type": session_type, "recording_mode": recording_mode, "planned_start_at": planned_start_at, "planned_end_at": planned_end_at})
+        _add_case_audit(db=db, case_id=case_id, session_id=int(cur.lastrowid), action="session.created", actor=created_by, detail={"device_id": device_id, "room_id": room_id, "session_no": session_no, "session_type": session_type, "recording_mode": recording_mode, "planned_start_at": planned_start_at, "planned_end_at": planned_end_at})
     return get_case_session(session_id=int(cur.lastrowid))
 
 
@@ -2659,6 +2664,59 @@ def close_case(*, case_id: int, actor: str) -> dict[str, Any] | None:
         db.execute("UPDATE case_info SET status='closed', updated_at=? WHERE id=?", (now, case_id))
         _add_case_audit(db=db, case_id=case_id, action="case.closed", actor=actor, detail={"completion_checks": report["checks"]})
     return get_case(case_id=case_id)
+
+
+def archive_case(*, case_id: int, actor: str) -> dict[str, Any] | None:
+    now = _utc_now_iso()
+    with get_db() as db:
+        case = db.execute("SELECT status FROM case_info WHERE id=?", (case_id,)).fetchone()
+        if not case or case["status"] != "closed":
+            return None
+        db.execute("UPDATE case_info SET status='archived', updated_at=? WHERE id=?", (now, case_id))
+        _add_case_audit(db=db, case_id=case_id, action="case.archived", actor=actor, detail={"archived_at": now})
+    return get_case(case_id=case_id)
+
+
+def get_case_workflow_dashboard() -> dict[str, Any]:
+    now = _utc_now_iso()
+    with get_db() as db:
+        cases = [dict(row) for row in db.execute("SELECT id, case_no, name, status, updated_at FROM case_info ORDER BY updated_at DESC, id DESC").fetchall()]
+        scheduled = [dict(row) for row in db.execute("""SELECT s.id, s.case_id, s.session_no, s.status, s.planned_start_at, s.planned_end_at,
+                                                       c.case_no, c.name AS case_name, r.name AS room_name, d.name AS device_name
+                                                       FROM case_session s JOIN case_info c ON c.id=s.case_id
+                                                       JOIN device d ON d.device_id=s.device_id
+                                                       LEFT JOIN interview_room r ON r.id=s.room_id
+                                                       WHERE s.status='planned' AND s.planned_start_at IS NOT NULL
+                                                       ORDER BY s.planned_start_at LIMIT 12""").fetchall()]
+        rooms = [dict(row) for row in db.execute("""SELECT r.id, r.name, r.enabled,
+                                                   SUM(CASE WHEN s.status='active' THEN 1 ELSE 0 END) AS active_session_count,
+                                                   SUM(CASE WHEN s.status='planned' AND s.planned_start_at<=? AND s.planned_end_at>? THEN 1 ELSE 0 END) AS scheduled_now_count
+                                                   FROM interview_room r LEFT JOIN case_session s ON s.room_id=r.id
+                                                   GROUP BY r.id ORDER BY r.name""", (now, now)).fetchall()]
+        evidence_case_ids = {int(row["case_id"]) for row in db.execute("""SELECT DISTINCT s.case_id FROM case_session s
+                                            JOIN case_info c ON c.id=s.case_id
+                                            WHERE s.status IN ('finalizing', 'ended')
+                                            AND c.status NOT IN ('closed', 'archived')""").fetchall()}
+    stages = {"intake": 0, "ready": 0, "scheduled": 0, "handling": 0, "evidence": 0, "closed": 0, "archived": 0}
+    for case in cases:
+        if case["status"] == "created":
+            stages["intake"] += 1
+        elif case["status"] == "assigned":
+            stages["ready"] += 1
+        elif int(case["id"]) in evidence_case_ids:
+            stages["evidence"] += 1
+        elif case["status"] == "handling":
+            stages["handling"] += 1
+        elif case["status"] == "closed":
+            stages["closed"] += 1
+        elif case["status"] == "archived":
+            stages["archived"] += 1
+    scheduled_case_ids = {int(item["case_id"]) for item in scheduled}
+    for case in cases:
+        if int(case["id"]) in scheduled_case_ids and case["status"] not in {"closed", "archived", "handling"}:
+            stages["scheduled"] += 1
+            stages["ready"] = max(0, stages["ready"] - 1)
+    return {"stages": stages, "scheduled_sessions": scheduled, "rooms": rooms}
 
 
 def archive_is_immutable(*, archive_id: int) -> bool:

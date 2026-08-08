@@ -122,7 +122,9 @@ from .sqlite import list_case_transcript_templates
 from .sqlite import update_case_session_status
 from .sqlite import verify_case_audit_chain
 from .sqlite import close_case
+from .sqlite import archive_case
 from .sqlite import get_case_completion_report
+from .sqlite import get_case_workflow_dashboard
 from .sqlite import log_case_archive_event
 from .sqlite import create_case_recording_binding
 from .sqlite import list_case_recording_bindings
