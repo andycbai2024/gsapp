@@ -1,0 +1,33 @@
+<div class="gb-preview">
+  <aside class="gb-list-panel">
+    <div class="gb-list-head"><strong>国标设备</strong><button id="gb-refresh" class="layui-btn layui-btn-primary layui-btn-sm" title="刷新设备目录"><i class="layui-icon layui-icon-refresh"></i></button></div>
+    <div id="gb-devices" class="gb-devices"></div>
+  </aside>
+  <main class="gb-stage-panel">
+    <header class="gb-stage-head"><div><strong id="gb-title">请选择国标通道</strong><span id="gb-state"></span></div><div><button id="gb-query" class="layui-btn layui-btn-primary layui-btn-sm" disabled>更新目录</button><button id="gb-start" class="layui-btn layui-btn-sm" disabled>启动点播</button><button id="gb-stop" class="layui-btn layui-btn-danger layui-btn-sm" disabled>停止</button></div></header>
+    <div class="gb-video-wrap"><video id="gb-video" autoplay muted playsinline controls></video><div id="gb-empty">从左侧选择已注册的国标通道</div></div>
+  </main>
+</div>
+<style>
+.gb-preview{display:grid;grid-template-columns:300px minmax(0,1fr);min-height:calc(100vh - 40px);background:#eef1f3}.gb-list-panel{background:#fff;border-right:1px solid #dfe5ea;padding:16px}.gb-list-head,.gb-stage-head{display:flex;align-items:center;justify-content:space-between;color:#27313a}.gb-list-head{margin-bottom:12px}.gb-devices{overflow:auto;max-height:calc(100vh - 120px)}.gb-device{padding:10px 8px;border-bottom:1px solid #edf0f2}.gb-device-name{font-weight:600}.gb-channel{display:block;width:100%;border:0;background:transparent;text-align:left;padding:7px 5px;margin-top:4px;cursor:pointer;color:#4a5662}.gb-channel:hover,.gb-channel.active{background:#e8f7f4;color:#087f74}.gb-channel small{color:#87919d}.gb-stage-panel{min-width:0;padding:18px}.gb-stage-head{margin-bottom:12px}.gb-stage-head strong{font-size:16px}.gb-stage-head span{margin-left:10px;font-size:13px;color:#697684}.gb-video-wrap{position:relative;display:flex;align-items:center;justify-content:center;background:#10191d;min-height:min(67vh,720px)}#gb-video{display:none;width:100%;max-height:72vh;background:#000}#gb-empty{color:#c9d1d8}@media(max-width:760px){.gb-preview{grid-template-columns:1fr}.gb-list-panel{border-right:0;border-bottom:1px solid #dfe5ea}.gb-devices{max-height:240px}.gb-stage-panel{padding:12px}.gb-video-wrap{min-height:48vh}}
+</style>
+<script>
+layui.use(['jquery','layer'],function(){
+  const $=layui.jquery,layer=layui.layer;
+  let selected=null,session=null,pollTimer=null;
+  const video=document.getElementById('gb-video');
+  const api=(url,method='GET',body)=>fetch(url,{method,credentials:'same-origin',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined}).then(r=>r.json()).then(result=>{if(result.code!==0)throw new Error(result.msg||'请求失败');return result.data;});
+  const esc=value=>String(value||'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  function setState(text){$('#gb-state').text(text||'');}
+  function selectChannel(device,channel){selected={device,channel};$('#gb-title').text((channel.name||channel.channel_id)+' / '+channel.channel_id);$('.gb-channel').removeClass('active');$('[data-channel="'+channel.channel_id+'"]').addClass('active');$('#gb-query,#gb-start').prop('disabled',false);setState(channel.status==='ON'?'通道在线':'通道状态: '+channel.status);}
+  function render(devices){const html=devices.map(device=>'<section class="gb-device"><div class="gb-device-name">'+esc(device.device_id)+' <small>'+esc(device.status)+'</small></div>'+(device.channels||[]).map(channel=>'<button class="gb-channel" data-device="'+esc(device.device_id)+'" data-channel="'+esc(channel.channel_id)+'">'+esc(channel.name||channel.channel_id)+'<small> '+esc(channel.status||'ON')+'</small></button>').join('')+'</section>').join('');$('#gb-devices').html(html||'<div class="layui-word-aux">暂无已注册国标设备</div>');}
+  async function refresh(){try{const status=await api('/api/gb28181/status');render(status.devices||[]);}catch(error){layer.msg(error.message);}}
+  function clearPlayback(message){if(pollTimer)clearTimeout(pollTimer);pollTimer=null;session=null;video.pause();video.removeAttribute('src');video.load();$('#gb-video').hide();$('#gb-empty').show().text(message||'从左侧选择已注册的国标通道');$('#gb-start').prop('disabled',!selected);$('#gb-stop').prop('disabled',true);}
+  async function poll(){if(!session)return;try{const state=await api('/api/gb28181/play/'+encodeURIComponent(session.call_id));if(state.state==='failed'){clearPlayback('设备拒绝国标点播');return;}if(state.is_online){const url=location.protocol+'//'+location.hostname+':8080/rtp/'+encodeURIComponent(state.stream)+'.live.mp4';video.src=url;video.play().catch(()=>{});$('#gb-video').show();$('#gb-empty').hide();setState('实时预览');return;}setState(state.state==='active'?'等待 RTP 媒体流...':'等待设备确认点播...');pollTimer=setTimeout(poll,1000);}catch(error){clearPlayback(error.message);}}
+  $('#gb-devices').on('click','.gb-channel',function(){const deviceId=$(this).data('device'),channelId=$(this).data('channel');api('/api/gb28181/status').then(status=>{const device=(status.devices||[]).find(item=>item.device_id===deviceId);const channel=device&&(device.channels||[]).find(item=>item.channel_id===channelId);if(device&&channel)selectChannel(device,channel);});});
+  $('#gb-start').on('click',async function(){if(!selected)return;clearPlayback('正在请求设备点播...');try{session=await api('/api/gb28181/devices/'+encodeURIComponent(selected.device.device_id)+'/channels/'+encodeURIComponent(selected.channel.channel_id)+'/play','POST',{});$('#gb-start').prop('disabled',true);$('#gb-stop').prop('disabled',false);poll();}catch(error){clearPlayback(error.message);}});
+  $('#gb-stop').on('click',async function(){if(!session)return;try{await api('/api/gb28181/play/'+encodeURIComponent(session.call_id)+'/stop','POST',{});}catch(error){layer.msg(error.message);}clearPlayback();});
+  $('#gb-query').on('click',async function(){if(!selected)return;try{await api('/api/gb28181/devices/'+encodeURIComponent(selected.device.device_id)+'/query','POST',{command:'Catalog'});setState('已请求设备更新目录...');setTimeout(refresh,1200);}catch(error){layer.msg(error.message);}});
+  $('#gb-refresh').on('click',refresh);refresh();
+});
+</script>

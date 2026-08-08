@@ -1,0 +1,44 @@
+<div class="hearing-page">
+  <header class="hearing-toolbar"><div><strong>远程提审</strong><span>设备原生音视频会话</span></div><div><button id="hearing-create" class="layui-btn"><i class="layui-icon layui-icon-addition"></i> 创建任务</button><button id="hearing-refresh" class="layui-btn layui-btn-primary" title="刷新"><i class="layui-icon layui-icon-refresh"></i></button></div></header>
+  <table class="layui-hide" id="hearing-table"></table>
+</div>
+<script type="text/html" id="hearing-actions">
+  {{# if(d.status === 'planned'){ }}<button class="layui-btn layui-btn-xs" lay-event="start">启动</button><button class="layui-btn layui-btn-xs layui-btn-primary" lay-event="cancel">取消</button>{{# } }}
+  {{# if(d.status === 'starting' || d.status === 'active'){ }}<button class="layui-btn layui-btn-xs layui-btn-danger" lay-event="stop">停止</button>{{# } }}
+  <button class="layui-btn layui-btn-xs layui-btn-primary" lay-event="detail">详情</button>
+</script>
+<script type="text/html" id="hearing-form">
+  <form class="layui-form" style="padding:18px" id="hearing-form-el">
+    <div class="layui-form-item"><label class="layui-form-label">关联案件</label><div class="layui-input-block"><select name="case_id" id="hearing-case" required></select></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">任务名称</label><div class="layui-input-block"><input name="title" class="layui-input" required placeholder="例如：跨区讯问 - 张某"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">提审端设备</label><div class="layui-input-block"><select name="questioning_device_id" id="hearing-questioning" required></select></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">被提审端设备</label><div class="layui-input-block"><select name="subject_device_id" id="hearing-subject" required></select></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">计划开始</label><div class="layui-input-block"><input type="datetime-local" name="scheduled_start_at" class="layui-input"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">计划结束</label><div class="layui-input-block"><input type="datetime-local" name="scheduled_end_at" class="layui-input"></div></div>
+    <div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn" lay-submit lay-filter="hearing-submit">创建任务</button></div></div>
+  </form>
+</script>
+<style>
+.hearing-page{padding:16px}.hearing-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}.hearing-toolbar strong{font-size:18px;color:#27313a}.hearing-toolbar span{margin-left:12px;color:#7b8794;font-size:13px}.hearing-status{font-weight:600}.hearing-status.planned{color:#697684}.hearing-status.starting{color:#d99000}.hearing-status.active{color:#087f74}.hearing-status.stopping{color:#d05b12}.hearing-status.ended{color:#697684}.hearing-status.failed{color:#d92d20}.hearing-detail{padding:16px;line-height:1.9}.hearing-participant{border-bottom:1px solid #edf0f2;padding:8px 0}.hearing-participant:last-child{border:0}
+</style>
+<script>
+layui.use(['table','layer','form','jquery'],function(){
+  const table=layui.table,layer=layui.layer,form=layui.form,$=layui.jquery;
+  let tasks=[],cases=[],devices=[];
+  const stateText={planned:'待启动',starting:'设备接入中',active:'提审中',stopping:'停止中',ended:'已结束',cancelled:'已取消',failed:'异常'};
+  const esc=value=>String(value||'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  async function request(url,method='GET',body){const response=await fetch(url,{method,credentials:'same-origin',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const result=await response.json();if(!response.ok||result.code!==0)throw new Error(result.msg||'请求失败');return result.data;}
+  function render(){table.render({elem:'#hearing-table',data:tasks,page:true,limit:15,cols:[[
+    {field:'task_no',title:'任务编号',minWidth:170},{field:'title',title:'任务名称',minWidth:180},{field:'case_no',title:'案件编号',minWidth:160},{field:'case_name',title:'案件名称',minWidth:150},
+    {field:'status',title:'状态',width:110,templet:item=>'<span class="hearing-status '+esc(item.status)+'">'+esc(stateText[item.status]||item.status)+'</span>'},{field:'running_participants',title:'设备状态',width:100,templet:item=>(item.running_participants||0)+'/2 就绪'},
+    {field:'scheduled_start_at',title:'计划开始',minWidth:170,templet:item=>item.scheduled_start_at||'-'},{field:'created_at',title:'创建时间',minWidth:170},{title:'操作',toolbar:'#hearing-actions',width:180}
+  ]]});}
+  async function load(){try{tasks=await request('/api/remote-hearing-tasks');render();}catch(error){layer.msg(error.message);}}
+  async function openCreate(){try{[cases,devices]=await Promise.all([request('/api/cases'),request('/api/devices')]);cases=cases.filter(item=>!['closed','archived'].includes(item.status));devices=devices.filter(item=>item.enabled);if(!cases.length||devices.length<2)return layer.msg('至少需要一个进行中案件和两台已启用设备');layer.open({type:1,title:'创建远程提审任务',area:['620px','auto'],content:$('#hearing-form').html(),success:()=>{const options=devices.map(item=>'<option value="'+esc(item.device_id)+'">'+esc(item.name)+'（'+esc(item.device_id)+'）</option>').join('');$('#hearing-case').html(cases.map(item=>'<option value="'+item.id+'">'+esc(item.case_no)+' / '+esc(item.name)+'</option>').join(''));$('#hearing-questioning,#hearing-subject').html(options);$('#hearing-subject').val(devices[1].device_id);form.render('select');}});}catch(error){layer.msg(error.message);}}
+  function taskDetail(item){request('/api/remote-hearing-tasks/'+item.id).then(task=>{const participants=(task.participants||[]).map(participant=>'<div class="hearing-participant"><b>'+esc(participant.role==='questioning'?'提审端':'被提审端')+'</b> '+esc(participant.device_name)+'<br>状态：'+esc(stateText[participant.status]||participant.status)+'　更新时间：'+esc(participant.updated_at)+'<br>详情：'+esc(JSON.stringify(participant.detail||{}))+'</div>').join('');layer.open({type:1,title:'远程提审任务 '+esc(task.task_no),area:['680px','auto'],content:'<div class="hearing-detail"><div><b>任务：</b>'+esc(task.title)+'</div><div><b>状态：</b>'+esc(stateText[task.status]||task.status)+'</div><div><b>媒体：</b>设备原生 RTMP 汇聚 / 本机硬解码输出</div><hr>'+participants+'</div>'});}).catch(error=>layer.msg(error.message));}
+  $('#hearing-create').on('click',openCreate);$('#hearing-refresh').on('click',load);
+  form.on('submit(hearing-submit)',async data=>{const payload=Object.assign({},data.field);for(const name of ['scheduled_start_at','scheduled_end_at'])if(payload[name])payload[name]=new Date(payload[name]).toISOString();if(payload.questioning_device_id===payload.subject_device_id)return layer.msg('提审端和被提审端必须选择不同设备');try{await request('/api/remote-hearing-tasks','POST',payload);layer.closeAll();layer.msg('任务已创建，可启动设备原生提审会话');load();}catch(error){layer.msg(error.message);}return false;});
+  table.on('tool(hearing-table)',async object=>{const action=object.event,item=object.data;if(action==='detail')return taskDetail(item);try{await request('/api/remote-hearing-tasks/'+item.id+'/'+action,'POST',{});layer.msg(action==='start'?'启动命令已下发':action==='stop'?'停止命令已下发':'任务已取消');load();}catch(error){layer.msg(error.message);}});
+  setInterval(load,5000);load();
+});
+</script>

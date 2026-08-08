@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1"
+    />
+    <style>
+      .layui-tree-iconClick .layui-icon-file::before {
+        content: "\e6ed" !important;
+        color: #23292e;
+        font-size: 16px;
+        margin-right: 0;
+      }
+
+      .video-wall-toolbar {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .video-wall-polling {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .video-wall-polling .layui-form-select { width: 160px; }
+      .video-wall-polling .layui-form-select .layui-input { width: 100%; }
+
+      #ID_videowall_container.layout-1 {
+        grid-template-rows: 1fr;
+        grid-template-columns: 1fr;
+      }
+
+      #ID_videowall_container.layout-4 {
+        grid-template-rows: 1fr 1fr;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      #ID_videowall_container.layout-9 {
+        grid-template-rows: 1fr 1fr 1fr;
+        grid-template-columns: 1fr 1fr 1fr;
+      }
+
+      #ID_videowall_container.layout-16 {
+        grid-template-rows: 1fr 1fr 1fr 1fr;
+        grid-template-columns: 1fr 1fr 1fr 1fr;
+      }
+
+      .video-cell {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background-color: #2f363c;
+        overflow: hidden;
+      }
+
+      .video-cell video {
+        width: 100%;
+        height: 100%;
+        background-color: #2f363c;
+        border: 1px solid #e7e7e7;
+        box-sizing: border-box;
+      }
+
+      .video-cell .video-status {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        display: none;
+        align-items: center;
+        color: #eeeeee;
+        font-weight: 500;
+        font-size: 18px;
+      }
+
+      .video-cell .video-btns {
+        position: absolute;
+        top: 10px;
+        /* 距离顶部 10px */
+        right: 10px;
+        /* 距离右侧 10px */
+        opacity: 0;
+        transition: opacity 0.3s;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        /* 防止点击穿透 */
+        pointer-events: auto;
+      }
+
+      .video-cell:hover .video-btns {
+        opacity: 1;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- 控制按钮组 -->
+    <div
+      style="
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 80px;
+      "
+    >
+      <div class="video-wall-toolbar">
+        <div class="layui-btn-group">
+          <button class="layui-btn" id="ID_single">单屏</button>
+          <button class="layui-btn" id="ID_quad">4 分屏</button>
+          <button class="layui-btn" data-layout="9">9 分屏</button>
+          <button class="layui-btn" data-layout="16">16 分屏</button>
+          <button class="layui-btn" data-layout="25">25 分屏</button>
+          <button class="layui-btn" data-layout="36">36 分屏</button>
+          <button class="layui-btn" data-layout="64">64 分屏</button>
+        </div>
+        <div class="layui-form video-wall-polling">
+          <label for="ID_polling_seconds">轮询间隔</label>
+          <select id="ID_polling_seconds">
+            <option value="0">不轮询</option><option value="10">10 秒</option><option value="30">30 秒</option><option value="60">60 秒</option>
+          </select>
+        </div>
+        <div class="layui-btn-group">
+          <button class="layui-btn layui-btn-primary" id="ID_save_wall">保存</button>
+          <button class="layui-btn" id="ID_fullscreen" title="全屏展示">
+            <i class="layui-icon layui-icon-screen-full"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 视频墙 -->
+    <div style="display: flex; justify-content: center; margin: 0">
+      <div
+        id="ID_videowall_container"
+        style="width: min(1200px, calc(100vw - 48px)); aspect-ratio: 16 / 9; display: grid"
+      ></div>
+    </div>
+
+    <!-- 流ID树 -->
+    <script id="ID_tpl_layer" type="text/html">
+      <div id="ID_streamid_tree" style="margin: 12px;"></div>
+    </script>
+
+    <script>
+      layui.use(function () {
+        let layer = layui.layer;
+        let tree = layui.tree;
+        let form = layui.form;
+        let $ = layui.jquery;
+
+        let nowVideoCells = [];
+        let streamTreeDataCache = null;
+        let streamTreeLoading = null;
+        let pollingTimer = null;
+        let pollingOffset = 0;
+
+        function buildStreamTreeData(data) {
+          const map = new Map();
+
+          (Array.isArray(data) ? data : []).forEach((item) => {
+            const app = item.app;
+            const stream = item.stream;
+            if (!app || !stream) return;
+
+            const info = { app, stream };
+
+            if (!map.has(app)) {
+              map.set(app, {
+                title: app,
+                children: [],
+              });
+            }
+
+            const appNode = map.get(app);
+            appNode.children.push({
+              title: stream,
+              channelInfo: info,
+            });
+          });
+
+          return Array.from(map.values());
+        }
+
+        function getGb28181TreeData() {
+          return $.get("/api/gb28181/status").then((res) => {
+            if (!res || res.code !== 0) throw new Error((res && res.msg) || "获取国标目录失败");
+            const devices = (res.data && res.data.devices) || [];
+            return devices.map((device) => ({
+              title: device.device_id,
+              children: (device.channels || []).map((channel) => ({
+                title: `${channel.name || channel.channel_id} (${channel.channel_id})`,
+                channelInfo: {
+                  sourceType: "gb28181",
+                  deviceId: device.device_id,
+                  channelId: channel.channel_id,
+                },
+              })),
+            })).filter((device) => device.children.length);
+          });
+        }
+
+        function getWallSourceTreeData() {
+          return Promise.all([getStreamTreeData(), getGb28181TreeData()]).then(([streams, gbDevices]) => {
+            const groups = [];
+            if (streams.length) groups.push({ title: "实时流", spread: true, children: streams });
+            if (gbDevices.length) groups.push({ title: "国标设备", spread: true, children: gbDevices });
+            return groups;
+          });
+        }
+
+        function getStreamTreeData() {
+          if (streamTreeDataCache) return Promise.resolve(streamTreeDataCache);
+          if (streamTreeLoading) return streamTreeLoading;
+
+          streamTreeLoading = new Promise((resolve, reject) => {
+            $.ajax({
+              url: "/api/stream/streamid-list?schema=fmp4",
+              method: "GET",
+              dataType: "json",
+              timeout: 10000,
+              success: function (res) {
+                if (res && res.code === 0) {
+                  streamTreeDataCache = buildStreamTreeData(res.data);
+                  resolve(streamTreeDataCache);
+                } else {
+                  reject(new Error((res && res.msg) || "获取流列表失败"));
+                }
+              },
+              error: function () {
+                reject(new Error("获取流列表失败"));
+              },
+              complete: function () {
+                streamTreeLoading = null;
+              },
+            });
+          });
+
+          return streamTreeLoading;
+        }
+
+        // 屏幕单元抽象
+        function VideoCell(container, index) {
+          this.container = container; //  挂载到 ID_videowall_container
+          this.index = index; // 分屏索引
+          this.element = null;
+          this.baseUrl = null;
+          this.app = null;
+          this.stream = null;
+          this.gbDeviceId = null;
+          this.gbChannelId = null;
+          this.gbSession = null;
+          this.gbPollTimer = null;
+          this.isStopped = true;
+          this.retryCount = 0;
+          this.retryTimer = null;
+          this.waitingTimer = null;
+
+          this.init();
+        }
+
+        VideoCell.prototype.init = function () {
+          // 创建 DOM 元素
+          this.element = document.createElement("div");
+          this.element.className = "video-cell";
+          this.element.innerHTML = `<video autoplay muted playsinline webkit-playsinline preload="none"></video>
+                                      <div class="video-status"></div>
+                                      <div class="video-btns">
+                                        <button class="layui-btn audio-btn layui-btn-sm" style="background-color: #1e9fff; margin: 0" data-index="${this.index}" title="打开声音"><i class="layui-icon layui-icon-volume"></i></button>
+                                        <button class="layui-btn snapshot-btn layui-btn-sm" style="background-color: #5fb878; margin: 0" data-index="${this.index}" title="抓图"><i class="layui-icon layui-icon-camera"></i></button>
+                                        <button class="layui-btn event-record-btn layui-btn-sm" style="background-color: #ff5722; margin: 0" data-index="${this.index}" title="即时录像"><i class="layui-icon layui-icon-video"></i></button>
+                                        <button class="layui-btn config-btn layui-btn-sm" style="background-color: #16baaa; margin: 0" data-index="${this.index}">配置</button>
+                                        <button class="layui-btn reset-btn layui-btn-sm" style="background-color: #ff5722; margin: 0" data-index="${this.index}">重置</button>
+                                      </div>`;
+
+          // 将创建的 DOM 添加到父容器
+          this.container.appendChild(this.element);
+
+          this.playerEl = this.element.querySelector("video");
+          this.statusEl = this.element.querySelector(".video-status");
+
+          // 配置按钮: 打开流ID树
+          let configBtn = this.element.querySelector(".config-btn");
+          configBtn.addEventListener("click", () => this.openLayer());
+
+          // 重置按钮: 关闭fmp4连接并停止播放
+          let resetBtn = this.element.querySelector(".reset-btn");
+          resetBtn.addEventListener("click", () => this.stopPlay());
+
+          this.element.querySelector(".audio-btn").addEventListener("click", () => this.toggleAudio());
+          this.element.querySelector(".snapshot-btn").addEventListener("click", () => this.captureSnapshot());
+          this.element.querySelector(".event-record-btn").addEventListener("click", () => this.startEventRecord());
+
+          this.playerEl.addEventListener("playing", () => {
+            this.retryCount = 0;
+            this.clearWaitingTimer();
+            this.hideStatus();
+          });
+
+          this.playerEl.addEventListener("canplay", () => {
+            this.hideStatus();
+          });
+
+          this.playerEl.addEventListener("waiting", () => {
+            if (this.isStopped || !this.baseUrl) return;
+            if (this.waitingTimer !== null) return;
+            this.waitingTimer = setTimeout(() => {
+              this.waitingTimer = null;
+              this.scheduleReconnect();
+            }, 4000);
+          });
+
+          this.playerEl.addEventListener("stalled", () => {
+            this.scheduleReconnect();
+          });
+
+          this.playerEl.addEventListener("error", () => {
+            this.scheduleReconnect();
+          });
+
+          this.playerEl.addEventListener("ended", () => {
+            this.scheduleReconnect();
+          });
+        };
+
+        VideoCell.prototype.clearWaitingTimer = function () {
+          if (this.waitingTimer !== null) {
+            clearTimeout(this.waitingTimer);
+            this.waitingTimer = null;
+          }
+        };
+
+        VideoCell.prototype.clearRetryTimer = function () {
+          if (this.retryTimer !== null) {
+            clearTimeout(this.retryTimer);
+            this.retryTimer = null;
+          }
+        };
+
+        VideoCell.prototype.showStatus = function (text) {
+          if (!this.statusEl) return;
+          this.statusEl.textContent = text || "";
+          this.statusEl.style.display = "flex";
+        };
+
+        VideoCell.prototype.hideStatus = function () {
+          if (!this.statusEl) return;
+          this.statusEl.style.display = "none";
+        };
+
+        VideoCell.prototype.buildUrlWithTs = function () {
+          if (!this.baseUrl) return null;
+          const ts = Date.now();
+          return this.baseUrl.indexOf("?") >= 0
+            ? `${this.baseUrl}&_t=${ts}`
+            : `${this.baseUrl}?_t=${ts}`;
+        };
+
+        VideoCell.prototype.scheduleReconnect = function () {
+          if (this.isStopped || !this.baseUrl || !this.playerEl) return;
+
+          this.clearWaitingTimer();
+          this.clearRetryTimer();
+
+          const retryIndex = Math.min(this.retryCount, 6);
+          const baseDelay = Math.min(15000, 1000 * Math.pow(2, retryIndex));
+          const jitter = Math.floor(Math.random() * 300);
+          const delay = baseDelay + jitter;
+
+          this.showStatus("离线，重连中...");
+
+          this.retryTimer = setTimeout(() => {
+            this.retryTimer = null;
+            if (this.isStopped || !this.baseUrl || !this.playerEl) return;
+
+            const url = this.buildUrlWithTs();
+            if (!url) return;
+
+            this.playerEl.pause();
+            this.playerEl.src = url;
+            this.playerEl.load();
+            const p = this.playerEl.play();
+            if (p && typeof p.catch === "function") {
+              p.catch(() => {});
+            }
+            this.retryCount += 1;
+          }, delay);
+        };
+
+        VideoCell.prototype.playStream = function (app, stream) {
+          this.stopPlay();
+
+          if (!app || !stream || !this.playerEl) return;
+
+          this.isStopped = false;
+          this.app = app;
+          this.stream = stream;
+          this.retryCount = 0;
+          this.baseUrl = `http://${window.location.hostname}:8080/${encodeURIComponent(
+            app
+          )}/${encodeURIComponent(stream)}.live.mp4`;
+
+          const url = this.buildUrlWithTs();
+          if (!url) return;
+
+          this.showStatus("连接中...");
+          this.playerEl.src = url;
+          this.playerEl.load();
+          const p = this.playerEl.play();
+          if (p && typeof p.catch === "function") {
+            p.catch(() => {});
+          }
+        };
+
+        VideoCell.prototype.playGb28181 = function (deviceId, channelId) {
+          this.stopPlay();
+          if (!deviceId || !channelId || !this.playerEl) return;
+
+          this.isStopped = false;
+          this.gbDeviceId = deviceId;
+          this.gbChannelId = channelId;
+          this.showStatus("正在请求国标点播...");
+          $.ajax({
+            url: `/api/gb28181/devices/${encodeURIComponent(deviceId)}/channels/${encodeURIComponent(channelId)}/play`,
+            type: "POST",
+            contentType: "application/json",
+            data: "{}",
+            success: (res) => {
+              if (this.isStopped || this.gbDeviceId !== deviceId || this.gbChannelId !== channelId) return;
+              if (!res || res.code !== 0) {
+                this.showStatus((res && res.msg) || "国标点播失败");
+                return;
+              }
+              this.gbSession = res.data;
+              this.waitForGb28181Stream();
+            },
+            error: () => this.showStatus("国标点播请求失败"),
+          });
+        };
+
+        VideoCell.prototype.waitForGb28181Stream = function () {
+          if (this.isStopped || !this.gbSession) return;
+          $.get(`/api/gb28181/play/${encodeURIComponent(this.gbSession.call_id)}`, (res) => {
+            if (this.isStopped || !this.gbSession || !res || res.code !== 0) return;
+            const state = res.data;
+            if (state.is_online) {
+              this.app = state.app;
+              this.stream = state.stream;
+              this.baseUrl = `http://${window.location.hostname}:8080/${encodeURIComponent(state.app)}/${encodeURIComponent(state.stream)}.live.mp4`;
+              this.showStatus("连接国标视频...");
+              this.playerEl.src = this.buildUrlWithTs();
+              this.playerEl.load();
+              this.playerEl.play().catch(() => {});
+              return;
+            }
+            this.showStatus("等待国标 RTP 媒体流...");
+            this.gbPollTimer = setTimeout(() => this.waitForGb28181Stream(), 1000);
+          }).fail(() => {
+            if (!this.isStopped) this.showStatus("国标点播状态查询失败");
+          });
+        };
+
+        VideoCell.prototype.toggleAudio = function () {
+          if (this.isStopped || !this.playerEl || !this.baseUrl) {
+            layer.msg("请先配置并连接实时流");
+            return;
+          }
+          this.playerEl.muted = !this.playerEl.muted;
+          const button = this.element.querySelector(".audio-btn");
+          button.style.backgroundColor = this.playerEl.muted ? "#1e9fff" : "#ffb800";
+          button.title = this.playerEl.muted ? "打开声音" : "关闭声音";
+        };
+
+        VideoCell.prototype.captureSnapshot = function () {
+          if (this.isStopped || !this.playerEl || !this.playerEl.videoWidth) {
+            layer.msg("请等待视频画面加载完成");
+            return;
+          }
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = this.playerEl.videoWidth;
+            canvas.height = this.playerEl.videoHeight;
+            canvas.getContext("2d").drawImage(this.playerEl, 0, 0);
+            const link = document.createElement("a");
+            link.href = canvas.toDataURL("image/png");
+            link.download = `${this.stream}-${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
+            link.click();
+          } catch (error) {
+            layer.msg("浏览器因媒体跨域限制无法抓图，请配置 ZLMediaKit CORS 后重试");
+          }
+        };
+
+        VideoCell.prototype.startEventRecord = function () {
+          if (this.isStopped || !this.app || !this.stream) {
+            layer.msg("请先配置并连接实时流");
+            return;
+          }
+          const path = `events/${this.app}/${this.stream}-${Date.now()}.mp4`;
+          $.get("/api/playback/event-record", { app: this.app, stream: this.stream, path, back_ms: 30000, forward_ms: 60000 }, (res) => {
+            layer.msg(res && res.code === 0 ? "即时录像已启动：回溯 30 秒，继续录制 60 秒" : ((res && res.msg) || "即时录像启动失败"));
+          }).fail(() => layer.msg("即时录像请求失败"));
+        };
+
+        VideoCell.prototype.openLayer = function () {
+          let self = this;
+
+          layer.open({
+            type: 1,
+            title: "流ID树",
+            area: ["300px", "324px"],
+            content: $("#ID_tpl_layer").html(),
+            success: function (layero, index) {
+              getWallSourceTreeData()
+                .then((treeData) => {
+                  tree.render({
+                    elem: "#ID_streamid_tree",
+                    data: treeData,
+                    click: function (obj) {
+                      if (!obj.data.channelInfo) return;
+
+                      const source = obj.data.channelInfo;
+                      if (source.sourceType === "gb28181") {
+                        self.playGb28181(source.deviceId, source.channelId);
+                      } else {
+                        self.playStream(source.app, source.stream);
+                      }
+
+                      layer.close(index);
+                    },
+                  });
+                })
+                .catch((err) => {
+                  layer.msg("❌ " + (err && err.message ? err.message : "获取流列表失败"), {
+                    time: 1500,
+                    offset: "t",
+                    shift: 1,
+                  });
+                });
+            },
+          });
+        };
+
+        VideoCell.prototype.stopPlay = function () {
+          if (this.gbPollTimer !== null) {
+            clearTimeout(this.gbPollTimer);
+            this.gbPollTimer = null;
+          }
+          if (this.gbSession && this.gbSession.call_id) {
+            $.ajax({ url: `/api/gb28181/play/${encodeURIComponent(this.gbSession.call_id)}/stop`, type: "POST" });
+          }
+          this.isStopped = true;
+          this.baseUrl = null;
+          this.app = null;
+          this.stream = null;
+          this.gbDeviceId = null;
+          this.gbChannelId = null;
+          this.gbSession = null;
+          this.retryCount = 0;
+          this.clearWaitingTimer();
+          this.clearRetryTimer();
+          this.hideStatus();
+
+          if (!this.playerEl) return;
+          this.playerEl.pause();
+          this.playerEl.removeAttribute("src");
+          this.playerEl.load();
+        };
+
+        window.destroyVideoCells = function () {
+          if (nowVideoCells.length > 0) {
+            nowVideoCells.forEach((cell) => {
+              // 停止播放
+              cell.stopPlay();
+              // 移除 DOM 元素
+              if (cell.element && cell.element.parentNode) {
+                cell.element.parentNode.removeChild(cell.element);
+              }
+            });
+          }
+          nowVideoCells = [];
+        };
+
+        function setLayout(num) {
+          window.destroyVideoCells();
+
+          let container = document.getElementById("ID_videowall_container");
+          const supportedLayouts = [1, 4, 9, 16, 25, 36, 64];
+          const layout = supportedLayouts.includes(Number(num)) ? Number(num) : 9;
+          // 设置布局：移除旧 class，添加新 class
+          container.className = ""; // 清空 class
+          container.classList.add(`layout-${layout}`);
+          const columns = Math.sqrt(layout);
+          const rows = columns;
+          container.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
+          container.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+
+          let fragment = document.createDocumentFragment();
+          // 创建屏幕实例
+          for (let i = 0; i < layout; i++) {
+            let cell = new VideoCell(fragment, i);
+            nowVideoCells.push(cell);
+          }
+          container.appendChild(fragment);
+        }
+
+        function saveWall() {
+          const container = document.getElementById("ID_videowall_container");
+          const layoutSize = nowVideoCells.length || 9;
+          const cells = nowVideoCells.map((cell) => cell.gbDeviceId && cell.gbChannelId
+            ? { source_type: "gb28181", device_id: cell.gbDeviceId, channel_id: cell.gbChannelId }
+            : { app: cell.app, stream: cell.stream });
+          const pollingSeconds = Number(document.getElementById("ID_polling_seconds").value || 0);
+          $.ajax({ url: "/api/video-wall", type: "PUT", contentType: "application/json", data: JSON.stringify({ layout_size: layoutSize, cells, polling_seconds: pollingSeconds, enabled: true }), success: (res) => layer.msg(res.code === 0 ? "布局已保存" : (res.msg || "保存失败")) });
+        }
+
+        function restartPolling() {
+          if (pollingTimer) clearInterval(pollingTimer);
+          pollingTimer = null;
+          const seconds = Number(document.getElementById("ID_polling_seconds").value || 0);
+          if (!seconds) return;
+          pollingTimer = setInterval(() => {
+            getStreamTreeData().then((apps) => {
+              const streams = apps.flatMap((appNode) => (appNode.children || []).map((item) => item.channelInfo));
+              if (!streams.length) return;
+              pollingOffset = (pollingOffset + nowVideoCells.length) % streams.length;
+              nowVideoCells.forEach((cell, index) => {
+                const source = streams[(pollingOffset + index) % streams.length];
+                cell.playStream(source.app, source.stream);
+              });
+            }).catch(() => {});
+          }, seconds * 1000);
+        }
+
+        function loadWall() {
+          $.get("/api/video-wall", (res) => {
+            const config = res && res.data;
+            const layoutSize = config && config.layout_size ? config.layout_size : 9;
+            setLayout(layoutSize);
+            if (config) {
+              document.getElementById("ID_polling_seconds").value = String(config.polling_seconds || 0);
+              form.render("select");
+              (config.cells || []).forEach((cell, index) => {
+                if (!cell || !nowVideoCells[index]) return;
+                if (cell.source_type === "gb28181" && cell.device_id && cell.channel_id) {
+                  nowVideoCells[index].playGb28181(cell.device_id, cell.channel_id);
+                } else if (cell.app && cell.stream) {
+                  nowVideoCells[index].playStream(cell.app, cell.stream);
+                }
+              });
+              restartPolling();
+            }
+          }).fail(() => setLayout(9));
+        }
+
+        // 监听全屏状态变化
+        const onFullscreenChange = () => {
+          let container = document.getElementById("ID_videowall_container");
+          let btns = container?.querySelectorAll(".video-btns");
+
+          if (!container || !btns) return;
+
+          if (document.fullscreenElement === container) {
+            // container 正在全屏 → 隐藏按钮
+            btns.forEach((btn) => {
+              btn.style.display = "none";
+            });
+          } else {
+            // 不是全屏 或 其他元素全屏 → 显示按钮
+            btns.forEach((btn) => {
+              btn.style.display = "flex"; // 恢复默认 display
+            });
+          }
+        };
+        document.addEventListener("fullscreenchange", onFullscreenChange);
+
+        window.clearnTimer = function () {
+          document.removeEventListener("fullscreenchange", onFullscreenChange);
+          if (pollingTimer) clearInterval(pollingTimer);
+        };
+
+        function fullscreen(elem) {
+          if (!elem) {
+            console.error("元素未找到");
+            return;
+          }
+
+          if (!document.fullscreenElement) {
+            // 进入全屏
+            elem.requestFullscreen().catch((err) => {
+              console.error("全屏失败:", err);
+            });
+          } else {
+            // 退出全屏
+            document.exitFullscreen();
+          }
+        }
+
+        // 绑定按钮事件
+        document
+          .getElementById("ID_single")
+          .addEventListener("click", () => setLayout(1));
+        document
+          .getElementById("ID_quad")
+          .addEventListener("click", () => setLayout(4));
+        document.querySelectorAll("[data-layout]").forEach((button) => button.addEventListener("click", () => setLayout(Number(button.dataset.layout))));
+        document.getElementById("ID_save_wall").addEventListener("click", saveWall);
+        document.getElementById("ID_polling_seconds").addEventListener("change", restartPolling);
+        document
+          .getElementById("ID_fullscreen")
+          .addEventListener("click", () =>
+            fullscreen(document.getElementById("ID_videowall_container"))
+          );
+
+        form.render("select");
+        loadWall();
+      });
+    </script>
+  </body>
+</html>

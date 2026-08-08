@@ -1,0 +1,59 @@
+<meta charset="utf-8">
+<div id="ID_system_maintenance" style="padding:16px">
+  <style>
+    #ID_system_maintenance .maintenance-form { max-width:540px; }
+    #ID_system_maintenance .maintenance-form .layui-form-label { width:110px; color:#555; }
+    #ID_system_maintenance .maintenance-form .layui-input-block { margin-left:140px; }
+    #ID_system_maintenance .maintenance-form .layui-input { background:#fafafa; color:#333; }
+    #ID_system_maintenance .license-status-row { display:flex; gap:10px; }
+    #ID_system_maintenance .license-status-row .layui-input { flex:0 0 100%; }
+    #ID_system_maintenance .license-status-actions { flex:0 0 auto; }
+    #ID_system_maintenance .license-active { color:#16baaa !important; font-weight:600; }
+    #ID_system_maintenance .license-inactive { color:#ff5722 !important; font-weight:600; }
+  </style>
+  <div class="layui-card">
+    <div class="layui-card-header">系统维护</div>
+    <div class="layui-card-body">
+      <form class="layui-form maintenance-form" lay-filter="system-maintenance-filter">
+        <div class="layui-form-item"><label class="layui-form-label">软件名称</label><div class="layui-input-block"><input type="text" name="product-name" readonly class="layui-input"></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">软件版本</label><div class="layui-input-block"><input type="text" name="software-version" readonly class="layui-input"></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">平台序列号</label><div class="layui-input-block"><input type="text" name="serial-number" readonly class="layui-input"></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">授权状态</label><div class="layui-input-block license-status-row"><input type="text" name="license-status" readonly class="layui-input"><div class="license-status-actions"><button type="button" id="ID_license_import" class="layui-btn layui-btn-primary">授权</button></div></div></div>
+        <div class="layui-form-item"><div class="layui-input-block"><button type="button" id="ID_maintenance_refresh" class="layui-btn layui-btn-primary"><i class="layui-icon layui-icon-refresh"></i> 刷新</button></div></div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+  layui.use(["form", "jquery", "layer"], function () {
+    const form = layui.form;
+    const $ = layui.jquery;
+    const layer = layui.layer;
+
+    function loadMaintenance(showMessage) {
+      $.get("/api/system/maintenance").done(function (res) {
+        if (!res || res.code !== 0) return layer.msg((res && res.msg) || "系统维护信息获取失败", { icon: 2 });
+        const data = res.data || {};
+        form.val("system-maintenance-filter", {
+          "product-name": data.product_name || "-",
+          "software-version": data.software_version || "-",
+          "serial-number": data.serial_number || "未配置",
+          "license-status": data.license_status || "未授权"
+        });
+        $("[name='license-status']").toggleClass("license-active", Boolean(data.licensed)).toggleClass("license-inactive", !data.licensed);
+        if (showMessage) layer.msg("刷新成功", { icon: 1 });
+      }).fail(function () { layer.msg("系统维护信息获取失败", { icon: 2 }); });
+    }
+
+    $("#ID_maintenance_refresh").on("click", function () { loadMaintenance(true); });
+    $("#ID_license_import").on("click", function () {
+      layer.prompt({ title: "导入授权码", formType: 2, maxlength: 8192 }, function (licenseCode, index) {
+        $.ajax({ url: "/api/system/license", type: "POST", contentType: "application/json", data: JSON.stringify({ license_code: licenseCode.trim() }) })
+          .done(function (res) { if (res && res.code === 0) { layer.close(index); loadMaintenance(false); layer.msg(res.msg || "授权成功", { icon: 1 }); } else layer.msg((res && res.msg) || "授权失败", { icon: 2 }); })
+          .fail(function (xhr) { layer.msg((xhr.responseJSON && xhr.responseJSON.msg) || "授权请求失败", { icon: 2 }); });
+      });
+    });
+    window.clearnTimer = function () {};
+    loadMaintenance(false);
+  });
+</script>

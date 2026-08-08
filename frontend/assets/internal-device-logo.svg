@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 36" role="img" aria-label="设备管理标识">
+  <defs>
+    <linearGradient id="signal" x1="0" x2="1">
+      <stop stop-color="#45e4ff"/>
+      <stop offset="1" stop-color="#4d8dff"/>
+    </linearGradient>
+  </defs>
+  <path d="M18 3l13 7v16l-13 7-13-7V10l13-7z" fill="#102e4f" stroke="url(#signal)" stroke-width="2"/>
+  <path d="M13 15l5-3 5 3v6l-5 3-5-3v-6z" fill="none" stroke="#e9fbff" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="18" cy="18" r="2" fill="#45e4ff"/>
+  <path d="M39 18h20l8-8h14m-22 8l8 8h14m8-16h20m-20 8h29m-29 8h20" fill="none" stroke="url(#signal)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="81" cy="10" r="3" fill="#45e4ff"/>
+  <circle cx="81" cy="26" r="3" fill="#45e4ff"/>
+  <circle cx="108" cy="10" r="3" fill="#4d8dff"/>
+  <circle cx="118" cy="18" r="3" fill="#e9fbff"/>
+  <circle cx="108" cy="26" r="3" fill="#4d8dff"/>
+</svg>

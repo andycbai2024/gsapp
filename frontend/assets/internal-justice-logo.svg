@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 76 36" role="img" aria-label="司法设备管理标识">
+  <defs>
+    <linearGradient id="edge" x1="0" x2="1"><stop stop-color="#f4d782"/><stop offset="1" stop-color="#dcae43"/></linearGradient>
+  </defs>
+  <path d="M18 3l13 5v9c0 8-5.4 13.5-13 16-7.6-2.5-13-8-13-16V8l13-5z" fill="#1d3858" stroke="url(#edge)" stroke-width="2"/>
+  <path d="M11 15h14m-7-4v13m-5-9l-4 7m4-7l4 7m7-7l-4 7m4-7l4 7M9 25h18" fill="none" stroke="#f7e6ad" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M40 11h26M40 18h20M40 25h26" stroke="#4bc8df" stroke-width="2.4" stroke-linecap="round"/>
+  <circle cx="68" cy="11" r="3" fill="#f0c75d"/>
+  <circle cx="62" cy="18" r="3" fill="#4bc8df"/>
+  <circle cx="68" cy="25" r="3" fill="#f0c75d"/>
+</svg>

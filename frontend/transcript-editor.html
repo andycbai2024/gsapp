@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>在线笔录</title>
+  <link rel="stylesheet" href="assets/layui/css/layui.css">
+  <style>
+    :root { --ink:#17212b; --line:#d9e1e8; --paper:#fff; --canvas:#edf2f5; --accent:#1677b9; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--canvas); color:var(--ink); font:14px/1.5 "Microsoft YaHei",sans-serif; }
+    .editor-head { height:56px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:0 18px; background:#fff; border-bottom:1px solid var(--line); }
+    .editor-title { min-width:0; font-weight:700; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .editor-meta { color:#657381; font-size:12px; }
+    .editor-actions { display:flex; align-items:center; gap:8px; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:6px; padding:9px 18px; background:#f8fafb; border-bottom:1px solid var(--line); }
+    .toolbar button { min-width:32px; height:30px; border:1px solid #cbd6de; border-radius:3px; background:#fff; color:#253746; cursor:pointer; font-weight:600; }
+    .toolbar button:hover { border-color:var(--accent); color:var(--accent); }
+    .editor-shell { max-width:900px; min-height:calc(100vh - 108px); margin:18px auto; padding:52px 70px; background:var(--paper); box-shadow:0 1px 8px rgba(23,33,43,.12); }
+    .transcript-prosemirror { min-height:640px; outline:none; font-size:16px; line-height:1.85; }
+    .transcript-prosemirror h1 { text-align:center; font-size:24px; margin:0 0 30px; }
+    .transcript-prosemirror h2 { font-size:20px; }
+    .transcript-prosemirror p { margin:0 0 12px; }
+    .transcript-prosemirror blockquote { margin:12px 0; padding-left:16px; border-left:3px solid #8fa0ad; color:#445360; }
+    .transcript-prosemirror ul, .transcript-prosemirror ol { padding-left:28px; }
+    .transcript-prosemirror .qa-line { display:flex; gap:8px; min-height:34px; margin:0 0 12px; }
+    .transcript-prosemirror .qa-label { flex:0 0 2.5em; font-weight:700; }
+    .transcript-prosemirror .qa-answer { flex:1; min-height:30px; border-bottom:1px solid #71808c; }
+    .state { color:#657381; white-space:nowrap; }
+    @media print { .editor-head,.toolbar { display:none!important; } body { background:#fff; } .editor-shell { box-shadow:none; margin:0; max-width:none; min-height:0; padding:0; } }
+  </style>
+</head>
+<body>
+  <header class="editor-head">
+    <div><div class="editor-title" id="editorTitle">在线笔录</div><div class="editor-meta" id="editorMeta"></div></div>
+    <div class="editor-actions"><span class="state" id="saveState">加载中</span><button class="layui-btn layui-btn-sm layui-btn-primary" id="printButton">打印</button><button class="layui-btn layui-btn-sm layui-btn-primary" id="versionButton">生成版本</button><button class="layui-btn layui-btn-sm" id="finalizeButton">定稿</button></div>
+  </header>
+  <div class="toolbar" id="toolbar">
+    <button type="button" data-command="bold" title="加粗">B</button><button type="button" data-command="italic" title="斜体"><i>I</i></button><button type="button" data-command="strike" title="删除线">S</button><button type="button" data-command="heading" title="标题">H</button><button type="button" data-command="bulletList" title="无序列表">&#8226;</button><button type="button" data-command="orderedList" title="有序列表">1.</button><button type="button" data-command="blockquote" title="引用">&#8220;</button><button type="button" data-command="undo" title="撤销">&#8630;</button><button type="button" data-command="redo" title="重做">&#8631;</button>
+  </div>
+  <main class="editor-shell"><div id="editor"></div></main>
+  <script src="assets/tiptap-editor.bundle.js"></script>
+  <script>
+    const transcriptId = new URLSearchParams(location.search).get('transcript_id');
+    const editorNode = document.getElementById('editor');
+    const saveState = document.getElementById('saveState');
+    let editor, transcript, timer, saving = false;
+    async function request(url, options) { const response = await fetch(url, Object.assign({credentials:'same-origin'}, options)); const body = await response.json(); if (!response.ok || body.code !== 0) throw new Error(body.msg || '请求失败'); return body.data; }
+    function setState(text) { saveState.textContent = text; }
+    async function saveDraft() { if (!editor || !transcript || transcript.status === 'finalized' || saving) return; saving = true; setState('保存中'); try { transcript = await request(`/api/transcripts/${transcriptId}/content`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content:editor.getJSON()})}); setState(`已保存 ${new Date().toLocaleTimeString()}`); } catch (error) { setState(error.message || '保存失败'); } finally { saving = false; } }
+    function queueSave() { clearTimeout(timer); setState('未保存'); timer = setTimeout(saveDraft, 1200); }
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { clearTimeout(timer); saveDraft(); } });
+    function invoke(command) { const chain = editor.chain().focus(); const result = command === 'heading' ? chain.toggleHeading({level:2}) : chain[`toggle${command[0].toUpperCase()}${command.slice(1)}`] ? chain[`toggle${command[0].toUpperCase()}${command.slice(1)}`]() : chain[command](); result.run(); }
+    document.getElementById('toolbar').addEventListener('click', event => { const button = event.target.closest('button[data-command]'); if (button && editor && transcript.status !== 'finalized') invoke(button.dataset.command); });
+    document.getElementById('printButton').onclick = () => window.print();
+    document.getElementById('versionButton').onclick = async () => { await saveDraft(); try { const data = await request(`/api/transcripts/${transcriptId}/publish`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note:'在线笔录版本'})}); transcript=data; setState(`已生成版本 V${data.current_version}`); } catch(error) { setState(error.message); } };
+    document.getElementById('finalizeButton').onclick = async () => { if (!confirm('定稿后不可再编辑，确定继续？')) return; await saveDraft(); try { const data = await request(`/api/transcripts/${transcriptId}/publish`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note:'在线笔录定稿',finalize:true})}); transcript=data; editor.setEditable(false); document.getElementById('toolbar').style.display='none'; document.getElementById('versionButton').style.display='none'; document.getElementById('finalizeButton').style.display='none'; setState('已定稿'); } catch(error) { setState(error.message); } };
+    (async () => { try { const data = await request(`/api/transcripts/${transcriptId}/editor`); transcript=data.transcript; document.getElementById('editorTitle').textContent=transcript.title; document.getElementById('editorMeta').textContent=`${transcript.case_no} / ${transcript.session_no} / ${transcript.status === 'finalized' ? '已定稿' : '编辑中'}`; editor=window.StreamUiTiptap(editorNode,data.content,transcript.status !== 'finalized',queueSave); if (transcript.status === 'finalized') { document.getElementById('toolbar').style.display='none'; document.getElementById('versionButton').style.display='none'; document.getElementById('finalizeButton').style.display='none'; } setState(transcript.last_saved_at ? `已保存 ${transcript.last_saved_at}` : '可编辑'); } catch(error) { setState(error.message || '加载失败'); } })();
+  </script>
+</body>
+</html>

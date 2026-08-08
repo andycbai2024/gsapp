@@ -1,0 +1,75 @@
+@font-face {
+  font-family: "gsapp-icon";
+  src: url("iconfont.woff2") format("woff2"), url("iconfont.woff") format("woff");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+.gsapp-icon {
+  font-family: "gsapp-icon" !important;
+  font-size: 16px;
+  font-style: normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.gsapp-icon-home:before { content: "\e997"; }
+.gsapp-icon-monitor:before { content: "\e905"; }
+.gsapp-icon-case:before { content: "\e80c"; }
+.gsapp-icon-resources:before { content: "\e8b7"; }
+.gsapp-icon-preview:before { content: "\e9f2"; }
+.gsapp-icon-organization:before { content: "\e978"; }
+.gsapp-icon-security:before { content: "\e90a"; }
+.gsapp-icon-alarm:before { content: "\e997"; }
+.gsapp-icon-access:before { content: "\e824"; }
+.gsapp-icon-command:before { content: "\e8c3"; }
+.gsapp-icon-pull-stream:before { content: "\e8b7"; }
+.gsapp-icon-push-stream:before { content: "\e8c3"; }
+.gsapp-icon-wall:before { content: "\e907"; }
+.gsapp-icon-playback:before { content: "\e9f2"; }
+.gsapp-icon-users:before { content: "\e978"; }
+.gsapp-icon-settings:before { content: "\e90a"; }
+.gsapp-icon-maintenance:before { content: "\e90b"; }
+.gsapp-icon-operations:before { content: "\e824"; }
+
+/* Sidebar SVG masks inherit the navigation text color and avoid loading a second icon font. */
+.layui-side .gsapp-icon {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  vertical-align: -3px;
+  background-color: currentColor;
+  -webkit-mask: var(--gsapp-nav-icon) center / contain no-repeat;
+  mask: var(--gsapp-nav-icon) center / contain no-repeat;
+}
+
+.layui-side .gsapp-icon:before { content: none !important; }
+.layui-side .gsapp-icon-home { --gsapp-nav-icon: url("iconpark/首页_home.svg"); }
+.layui-side .gsapp-icon-monitor { --gsapp-nav-icon: url("iconpark/设备_devices.svg"); }
+.layui-side .gsapp-icon-resources { --gsapp-nav-icon: url("iconpark/文件夹_folder.svg"); }
+.layui-side .gsapp-icon-preview { --gsapp-nav-icon: url("iconpark/摄像_monitor.svg"); }
+.layui-side .gsapp-icon-gb28181,
+.layui-side .gsapp-icon-gb28181-settings {
+  width: 18px;
+  height: 18px;
+  background-color: transparent;
+  -webkit-mask: none;
+  mask: none;
+}
+.layui-side .gsapp-icon-gb28181:before { content: "\e8b7" !important; }
+.layui-side .gsapp-icon-gb28181-settings:before { content: "\e90b" !important; }
+.layui-side .gsapp-icon-case { --gsapp-nav-icon: url("iconpark/文档_file-doc.svg"); }
+.layui-side .gsapp-icon-organization { --gsapp-nav-icon: url("iconpark/人员_people.svg"); }
+.layui-side .gsapp-icon-security { --gsapp-nav-icon: url("iconpark/安全_security.svg"); }
+.layui-side .gsapp-icon-alarm { --gsapp-nav-icon: url("iconpark/警报_alarm.svg"); }
+.layui-side .gsapp-icon-access { --gsapp-nav-icon: url("iconpark/智能门锁_electronic-door-lock.svg"); }
+.layui-side .gsapp-icon-command { --gsapp-nav-icon: url("iconpark/对讲机_intercom.svg"); }
+.layui-side .gsapp-icon-pull-stream { --gsapp-nav-icon: url("iconpark/接入链接_link-in.svg"); }
+.layui-side .gsapp-icon-push-stream { --gsapp-nav-icon: url("iconpark/传出_outgoing.svg"); }
+.layui-side .gsapp-icon-wall { --gsapp-nav-icon: url("iconpark/布局4_layout-four.svg"); }
+.layui-side .gsapp-icon-playback { --gsapp-nav-icon: url("iconpark/监控录像_camera-four.svg"); }
+.layui-side .gsapp-icon-users { --gsapp-nav-icon: url("iconpark/用户_user.svg"); }
+.layui-side .gsapp-icon-settings { --gsapp-nav-icon: url("iconpark/设置_setting.svg"); }
+.layui-side .gsapp-icon-maintenance { --gsapp-nav-icon: url("iconpark/工具_tool.svg"); }
+.layui-side .gsapp-icon-operations { --gsapp-nav-icon: url("iconpark/服务器_server.svg"); }

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>集中管理平台</title>
+    <meta
+      content="width=device-width, initial-scale=1, maximum-scale=1"
+      name="viewport"
+    />
+    <link href="assets/layui/css/layui.css" rel="stylesheet" />
+    <link href="./assets/favicon.svg?v=20260805b" rel="icon" type="image/svg+xml" />
+    <style>
+      :root {
+        --login-blue: #0b4c91;
+        --login-navy: #071d42;
+        --login-gold: #cda94c;
+      }
+
+      body {
+        background: linear-gradient(rgba(3, 43, 104, 0.16), rgba(3, 43, 104, 0.16)), url("./assets/login-ai-reference.png") center / cover no-repeat;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+
+      .login-box {
+        width: 300px;
+        padding: 28px;
+        background: #fafafa;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+        border-radius: 6px;
+      }
+
+      .login-mark {
+        display: block;
+        width: 54px;
+        height: 54px;
+        margin: 0 auto 10px;
+      }
+
+      .login-title {
+        text-align: center;
+        font-size: 30px;
+        color: var(--login-navy);
+        margin-bottom: 6px;
+        font-weight: 600;
+      }
+
+      .login-subtitle {
+        margin-bottom: 20px;
+        color: #728092;
+        font-size: 13px;
+        text-align: center;
+      }
+
+      .login-box .layui-input {
+        height: 38px;
+        border-color: #d9e2ef;
+      }
+
+      .login-box .layui-input:focus {
+        border-color: var(--login-blue);
+        box-shadow: 0 0 0 3px rgba(11, 76, 145, 0.1);
+      }
+
+      .login-box .layui-input-prefix {
+        color: var(--login-blue);
+      }
+
+      .login-submit {
+        height: 38px;
+        background: #1e9fff;
+      }
+
+      .login-submit:hover {
+        background: #168de2;
+      }
+
+      @media (max-width: 720px) {
+        body {
+          justify-content: center;
+          padding: 24px;
+        }
+
+        .login-box {
+          width: min(300px, 100%);
+          padding: 28px 24px;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="login-box">
+      <img class="login-mark" src="./assets/login-justice-mark.png" alt="司法天平" />
+      <div class="login-title">集中管理平台</div>
+      <div class="login-subtitle">司法谈话记录与设备协同管理</div>
+      <form onsubmit="return handleLogin()">
+        <div class="layui-form-item">
+          <div class="layui-input-wrap" style="margin-bottom:12px">
+            <div class="layui-input-prefix"><i class="layui-icon layui-icon-username"></i></div>
+            <input type="text" id="username" name="username" required placeholder="用户名" autocomplete="username" class="layui-input" autofocus />
+          </div>
+          <div class="layui-input-wrap">
+            <div class="layui-input-prefix"><i class="layui-icon layui-icon-password"></i></div>
+            <input type="password" id="password" name="password" required placeholder="密码" autocomplete="current-password" class="layui-input" />
+          </div>
+        </div>
+        <button class="layui-btn layui-btn-fluid login-submit" type="submit">登录</button>
+      </form>
+    </div>
+    <script src="assets/layui/layui.js"></script>
+    <script>
+      layui.use(["layer", "form"], function () {
+        let layer = layui.layer;
+        let form = layui.form;
+        const returnTo = new URLSearchParams(window.location.search).get("return_to");
+        const target = returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "./index.html";
+        form.render();
+
+        window.handleLogin = function () {
+          const username = document.getElementById("username").value.trim();
+          const password = document.getElementById("password").value;
+
+          fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ username, password }),
+          })
+            .then(async function (response) {
+              const result = await response.json();
+              if (!response.ok) {
+                throw new Error(result.msg || "登录服务不可用");
+              }
+              return result;
+            })
+            .then(function (res) {
+              if (res && res.code === 0) {
+                window.location.href = target;
+                return;
+              }
+              layer.msg((res && res.msg) || "登录失败");
+            })
+            .catch(function (error) {
+              layer.msg(error.message || "登录服务不可用");
+            });
+          return false;
+        };
+      });
+    </script>
+  </body>
+</html>

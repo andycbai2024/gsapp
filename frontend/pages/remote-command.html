@@ -1,0 +1,155 @@
+<div class="command-page">
+  <div class="layui-card">
+    <div class="layui-card-header">远程指挥</div>
+    <div class="layui-card-body">
+      <div class="layui-form command-session">
+        <div class="layui-form-item">
+          <label class="layui-form-label">办案会话</label>
+          <div class="layui-input-block"><select id="command-session"></select></div>
+        </div>
+        <button class="layui-btn layui-btn-primary" id="command-refresh">刷新记录</button>
+      </div>
+      <div class="layui-row layui-col-space16">
+        <div class="layui-col-md4">
+          <section class="command-panel">
+            <h3>文字指挥</h3>
+            <textarea id="command-content" class="layui-textarea" placeholder="输入发给办案人员的文字指令"></textarea>
+            <button id="command-send-text" class="layui-btn">发送文字指令</button>
+          </section>
+          <section class="command-panel voice-panel">
+            <h3>实时语音指挥</h3>
+            <p id="voice-state">使用浏览器麦克风经 WebRTC 直推设备专用通道。</p>
+            <div class="voice-actions">
+              <button id="voice-start" class="layui-btn layui-btn-warm"><i class="layui-icon layui-icon-speaker"></i> 开始语音</button>
+              <button id="voice-stop" class="layui-btn layui-btn-danger" style="display:none"><i class="layui-icon layui-icon-close"></i> 停止语音</button>
+            </div>
+            <p class="voice-note">设备端需订阅指令携带的音频流并转入扬声器；本平台只在 WebRTC 协商成功后标记为推流中。</p>
+          </section>
+        </div>
+        <div class="layui-col-md8">
+          <section class="command-panel"><h3>指令记录</h3><table class="layui-hide" id="command-table"></table></section>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<style>
+  .command-page{padding:16px}.command-session{display:flex;gap:12px;align-items:end;margin-bottom:16px}.command-session .layui-form-item{flex:1;margin:0}.command-session .layui-btn,.voice-actions .layui-btn{margin:0}.command-panel{border:1px solid #e6e9ed;padding:16px;margin-bottom:16px;background:#fff}.command-panel h3{margin:0 0 12px;font-size:15px;color:#344054}.command-panel textarea{height:130px;margin-bottom:12px}.voice-panel{border-left:3px solid #ffb800}.voice-panel p{margin:0 0 12px;color:#667085;line-height:1.7}.voice-panel .voice-note{font-size:12px}.voice-actions{display:flex;gap:8px}
+</style>
+<script type="text/html" id="command-actions">
+  {{# if(d.status === 'sent'){ }}<a class="layui-btn layui-btn-xs layui-btn-danger" lay-event="cancel">撤回</a>{{# } }}
+</script>
+<script>
+layui.use(['table','layer','form','jquery'], function(){
+  const table=layui.table, layer=layui.layer, form=layui.form, $=layui.jquery;
+  let sessions=[];
+  let voice={pc:null,stream:null,commandId:null,sessionId:null};
+
+  function api(url,method,data,done){
+    $.ajax({url,type:method,contentType:data===undefined?undefined:'application/json',data:data===undefined?undefined:JSON.stringify(data),success:res=>res.code===0?done(res):layer.msg(res.msg||'操作失败'),error:xhr=>layer.msg((xhr.responseJSON||{}).msg||'请求失败')});
+  }
+  async function request(url,method,data){
+    const response=await fetch(url,{method,headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});
+    const result=await response.json();
+    if(!response.ok||result.code!==0)throw new Error(result.msg||'请求失败');
+    return result.data;
+  }
+  function currentSession(){return $('#command-session').val();}
+  function statusLabel(item){return item.status==='acknowledged'?'已确认':item.status==='failed'?'执行失败':item.status==='cancelled'?'已撤回':'待确认';}
+  function render(){
+    const sessionId=currentSession();
+    if(!sessionId)return;
+    api('/api/case-sessions/'+sessionId+'/remote-commands','GET',undefined,res=>table.render({
+      elem:'#command-table',data:res.data||[],
+      cols:[[
+        {field:'sent_at',title:'发送时间',minWidth:165},
+        {field:'command_type',title:'类型',width:100,templet:item=>item.command_type==='voice'?'实时语音':'文字'},
+        {field:'content',title:'内容',minWidth:170},
+        {field:'status',title:'设备确认',width:100,templet:statusLabel},
+        {field:'detail',title:'通道 / 结果',minWidth:190,templet:item=>{
+          const detail=item.detail||{};
+          if(detail.device_result==='failed')return '失败：'+((detail.device_detail||{}).reason||'设备未说明原因');
+          return detail.transport==='webrtc'?'WebRTC / '+detail.stream_name:'-';
+        }},
+        {field:'sent_by',title:'指挥员',width:100},
+        {field:'acknowledged_at',title:'确认时间',minWidth:160,templet:item=>item.acknowledged_at||'-'},
+        {title:'操作',toolbar:'#command-actions',width:80}
+      ]],page:true,limit:20
+    }));
+  }
+  function loadSessions(){
+    api('/api/cases','GET',undefined,res=>{
+      const cases=res.data||[];
+      if(!cases.length){$('#command-session').html('<option value="">没有活动会话</option>');form.render('select');return;}
+      let left=cases.length,all=[];
+      cases.forEach(caseItem=>api('/api/cases/'+caseItem.id+'/sessions','GET',undefined,response=>{
+        all.push(...(response.data||[]));
+        if(!--left){
+          sessions=all.filter(item=>['active','finalizing'].includes(item.status));
+          $('#command-session').html(sessions.map(item=>'<option value="'+item.id+'">'+item.case_no+' / '+item.session_no+' / '+item.device_name+'</option>').join('')||'<option value="">没有活动会话</option>');
+          form.render('select');render();
+        }
+      }));
+    });
+  }
+  function withdraw(commandId,sessionId,quiet){
+    if(!commandId||!sessionId)return Promise.resolve();
+    return request('/api/case-sessions/'+sessionId+'/remote-commands/'+commandId,'DELETE').then(()=>{if(!quiet)layer.msg('指令已撤回');render();}).catch(error=>{if(!quiet)layer.msg(error.message||'撤回失败');});
+  }
+  function stopVoice(message){
+    const activeVoice=voice;
+    const commandId=activeVoice.commandId,sessionId=activeVoice.sessionId;
+    voice={pc:null,stream:null,commandId:null,sessionId:null};
+    if(activeVoice.pc)activeVoice.pc.close();
+    if(activeVoice.stream)activeVoice.stream.getTracks().forEach(track=>track.stop());
+    $('#voice-start').show();$('#voice-stop').hide();$('#voice-state').text(message||'语音通道已停止。');
+    withdraw(commandId,sessionId,true);
+  }
+  function waitIce(pc){
+    return new Promise(resolve=>{
+      if(pc.iceGatheringState==='complete')return resolve();
+      const timer=setTimeout(done,3500);
+      function done(){clearTimeout(timer);pc.removeEventListener('icegatheringstatechange',check);resolve();}
+      function check(){if(pc.iceGatheringState==='complete')done();}
+      pc.addEventListener('icegatheringstatechange',check);
+    });
+  }
+  async function startVoice(){
+    const sessionId=currentSession();
+    if(!sessionId)return layer.msg('请选择活动办案会话');
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return layer.msg('当前浏览器不支持无插件麦克风采集');
+    if(!window.isSecureContext&&location.hostname!=='localhost')return layer.msg('麦克风采集需要 HTTPS 或 localhost 环境');
+    let channel=null;
+    $('#voice-state').text('正在请求麦克风权限...');
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
+      $('#voice-state').text('正在创建设备语音通道...');
+      channel=await request('/api/case-sessions/'+sessionId+'/voice-commands','POST',{});
+      const pc=new RTCPeerConnection({sdpSemantics:'unified-plan'});
+      stream.getAudioTracks().forEach(track=>pc.addTrack(track,stream));
+      voice={pc,stream,commandId:channel.command.id,sessionId};
+      pc.onconnectionstatechange=()=>{
+        if(pc.connectionState==='connected')$('#voice-state').text('WebRTC 推流中，等待 LM700 端订阅扬声器通道。');
+        if(['failed','disconnected','closed'].includes(pc.connectionState)&&voice.pc===pc)stopVoice('语音连接已断开。');
+      };
+      const offer=await pc.createOffer();await pc.setLocalDescription(offer);await waitIce(pc);
+      const answer=await request(channel.channel.signal_url,'POST',{sdp:pc.localDescription.sdp});
+      await pc.setRemoteDescription({type:'answer',sdp:answer.sdp});
+      $('#voice-start').hide();$('#voice-stop').show();$('#voice-state').text('WebRTC 正在连接设备...');render();
+    }catch(error){
+      if(channel)await withdraw(channel.command.id,sessionId,true);
+      stopVoice('语音启动失败。');layer.msg(error.message||'无法启动语音指挥');
+    }
+  }
+
+  $('#command-send-text').on('click',()=>{
+    const sessionId=currentSession(),content=$('#command-content').val().trim();
+    if(!sessionId)return layer.msg('请选择活动办案会话');if(!content)return layer.msg('请输入指挥内容');
+    api('/api/case-sessions/'+sessionId+'/remote-commands','POST',{command_type:'text',content},()=>{$('#command-content').val('');render();layer.msg('文字指令已发送');});
+  });
+  $('#voice-start').on('click',startVoice);$('#voice-stop').on('click',()=>stopVoice());$('#command-refresh').on('click',render);
+  $('#command-session').on('change',()=>{if(voice.pc)stopVoice('已切换办案会话，语音通道已停止。');render();});
+  table.on('tool(command-table)',obj=>{if(obj.event==='cancel')layer.confirm('撤回后设备将不再获取该指令，是否继续？',()=>withdraw(obj.data.id,currentSession(),false));});
+  window.addEventListener('beforeunload',()=>stopVoice());loadSessions();setInterval(render,10000);
+});
+</script>

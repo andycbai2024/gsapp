@@ -1,0 +1,86 @@
+<div style="padding:16px">
+  <div class="layui-card"><div class="layui-card-header">审讯主机</div><div class="layui-card-body">
+    <div class="layui-form" style="display:flex;justify-content:space-between;margin-bottom:16px">
+      <div><input id="device-search" class="layui-input" placeholder="设备名称 / 序列号" style="width:260px;display:inline-block"><button id="device-search-btn" class="layui-btn layui-btn-primary">查询</button></div>
+      <button id="device-add-btn" class="layui-btn" style="background:#16baaa"><i class="layui-icon layui-icon-addition"></i> 添加设备</button>
+    </div>
+    <table class="layui-hide" id="device-table"></table>
+  </div></div>
+</div>
+<script id="device-toolbar" type="text/html">
+  <a class="layui-btn layui-btn-xs" lay-event="edit">编辑</a>
+  {{# if (d.enabled) { }}<a class="layui-btn layui-btn-xs layui-btn-warm" lay-event="toggle">停用接入</a>{{# } else { }}<a class="layui-btn layui-btn-xs layui-btn-normal" lay-event="toggle">启用接入</a>{{# } }}
+  <a class="layui-btn layui-btn-xs" lay-event="channels">通道</a>
+  <a class="layui-btn layui-btn-xs" lay-event="schedule">计划</a>
+  <a class="layui-btn layui-btn-xs layui-btn-normal" lay-event="remote" style="white-space:nowrap">远程管理</a>
+</script>
+<script id="device-form" type="text/html">
+<form class="layui-form" style="padding:18px" id="device-form-el">
+  <div class="layui-form-item"><label class="layui-form-label">设备 ID</label><div class="layui-input-block"><input class="layui-input" name="device_id" required placeholder="建议填审讯主机序列号"></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">设备名称</label><div class="layui-input-block"><input class="layui-input" name="name" required></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">序列号</label><div class="layui-input-block"><input class="layui-input" name="serial_number"></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">设备地址</label><div class="layui-input-block"><input class="layui-input" name="address" placeholder="192.168.1.100"></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">管理地址</label><div class="layui-input-block"><input class="layui-input" name="web_url" placeholder="http://192.168.1.100" title="设备前端网页地址"></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">允许接入</label><div class="layui-input-block"><input type="checkbox" name="enabled" title="开启|关闭" lay-skin="switch"></div></div>
+  <div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn" lay-submit lay-filter="device-submit">保存</button></div></div>
+</form>
+</script>
+<script id="channel-form" type="text/html">
+<form class="layui-form" style="padding:18px" id="channel-form-el">
+  <div class="layui-form-item"><label class="layui-form-label">通道号</label><div class="layui-input-block"><input type="number" class="layui-input" name="channel_no" required value="1"></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">通道名称</label><div class="layui-input-block"><input class="layui-input" name="name" required></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">应用名</label><div class="layui-input-block"><input class="layui-input" name="app" placeholder="live"></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">流 ID</label><div class="layui-input-block"><input class="layui-input" name="stream" placeholder="camera_01"></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">关键词</label><div class="layui-input-block"><input class="layui-input" name="keywords" placeholder="如：大门、停车场"></div></div>
+  <div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn" lay-submit lay-filter="channel-submit">保存通道</button></div></div>
+</form>
+</script>
+<script id="schedule-form" type="text/html">
+<form class="layui-form" style="padding:18px" id="schedule-form-el">
+  <div class="layui-form-item"><label class="layui-form-label">通道</label><div class="layui-input-block"><select name="channel_id" id="schedule-channel" required></select></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">工作日</label><div class="layui-input-block"><input class="layui-input" name="weekdays" value="0,1,2,3,4,5,6" placeholder="0=周一，6=周日"></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">开始时间</label><div class="layui-input-block"><input class="layui-input" name="start_time" value="00:00"></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">结束时间</label><div class="layui-input-block"><input class="layui-input" name="end_time" value="23:59"></div></div>
+  <div class="layui-form-item"><label class="layui-form-label">保留天数</label><div class="layui-input-block"><input type="number" class="layui-input" name="retention_days" value="7" min="1" max="365"></div></div>
+  <div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn" lay-submit lay-filter="schedule-submit">保存计划</button></div></div>
+</form>
+</script>
+<script>
+layui.use(['table','layer','form','jquery'], function () {
+  const table=layui.table, layer=layui.layer, form=layui.form, $=layui.jquery;
+  let activeDevice=null;
+  function request(url, method, data, done) { $.ajax({url, type:method, contentType:data ? 'application/json' : undefined, data:data ? JSON.stringify(data) : undefined, success:done, error:function(xhr){layer.msg((xhr.responseJSON&&xhr.responseJSON.msg)||'请求失败')}}); }
+  function renderDevices(){
+    request('/api/devices','GET',null,function(res){
+      const keyword=$('#device-search').val().trim();
+      let rows=(res.data||[]).filter(d=>!keyword||`${d.name} ${d.serial_number||''}`.includes(keyword));
+      table.render({elem:'#device-table',data:rows,cols:[[
+        {field:'name',title:'设备名称',minWidth:150},
+        {field:'device_id',title:'设备 ID',minWidth:180},
+        {field:'address',title:'地址',minWidth:150},
+        {field:'access_key_masked',title:'接入密钥',width:125,templet:d=>`${d.access_key_masked} <a lay-event="access-key" title="查看接入密钥"><i class="layui-icon layui-icon-eye"></i></a>`},
+        {field:'enabled',title:'接入',width:90,templet:d=>d.enabled?'<span class="layui-badge layui-bg-green">已启用</span>':'<span class="layui-badge layui-bg-gray">未启用</span>'},
+        {field:'status',title:'状态',width:100,templet:d=>d.status==='online'?'<span class="layui-badge layui-bg-green">在线</span>':'<span class="layui-badge layui-bg-gray">离线</span>'},
+        {title:'案件任务',minWidth:150,templet:d=>`待接收 ${d.pending_case_count||0} / 办理中 ${d.active_case_count||0}`},
+        {field:'active_session_count',title:'活动会话',width:100,templet:d=>d.active_session_count||0},
+        {field:'active_case_nos',title:'当前案件',minWidth:160,templet:d=>d.active_case_nos||'-'},
+        {field:'last_seen_at',title:'最后心跳',minWidth:180},
+        {title:'操作',toolbar:'#device-toolbar',width:390}
+      ]],page:true,limit:10});
+    });
+  }
+  function openDeviceForm(device) { const editing=Boolean(device); layer.open({type:1,title:editing?'编辑设备':'添加设备',area:['560px','auto'],content:$('#device-form').html(),success:function(layero){const formEl=layero.find('#device-form-el'); if(editing){formEl.find('[name=device_id]').val(device.device_id).prop('disabled',true);formEl.find('[name=name]').val(device.name);formEl.find('[name=serial_number]').val(device.serial_number||'');formEl.find('[name=address]').val(device.address||'');formEl.find('[name=web_url]').val(device.web_url||'');formEl.find('[name=enabled]').prop('checked',Boolean(device.enabled));formEl.find('.layui-form-item:last').before('<div class="layui-form-item"><label class="layui-form-label">接入密钥</label><div class="layui-input-block" style="display:flex;gap:8px"><input id="device-key-input" class="layui-input" type="password" readonly value="********"><button type="button" class="layui-btn layui-btn-primary" id="device-key-view"><i class="layui-icon layui-icon-eye"></i></button><button type="button" class="layui-btn layui-btn-warm" id="device-key-regenerate">重新生成</button></div></div>');formEl.find('#device-key-view').on('click',function(){request('/api/devices/'+encodeURIComponent(device.device_id)+'/access-key','GET',null,function(res){if(res.code===0){const input=formEl.find('#device-key-input').val(res.access_key);input.attr('type',input.attr('type')==='password'?'text':'password');}else layer.msg(res.msg+'；请使用“重新生成”');});});formEl.find('#device-key-regenerate').on('click',function(){request('/api/devices/'+encodeURIComponent(device.device_id)+'/access-key','POST',{},function(res){if(res.code===0){formEl.find('#device-key-input').val(res.access_key).attr('type','text');layer.msg('新密钥已生成，请同步保存到设备');renderDevices();}else layer.msg(res.msg);});});form.render();} }}); }
+  $('#device-search-btn').on('click',renderDevices); $('#device-add-btn').on('click',()=>openDeviceForm(null));
+  form.on('submit(device-submit)',function(obj){const editing=Boolean(activeDevice&&$('#device-form-el [name=device_id]').prop('disabled'));obj.field.enabled=obj.field.enabled==='on';request(editing?'/api/devices/'+encodeURIComponent(activeDevice.device_id):'/api/devices',editing?'PUT':'POST',obj.field,function(res){if(res.code===0){if(res.access_key)layer.alert(`设备接入密钥：${res.access_key}<br>请在审讯主机中保存该密钥。`,{title:'设备已预创建'});layer.closeAll();renderDevices();}else layer.msg(res.msg);});return false;});
+  function showAccessKey(device, accessKey) { const content=$('<div style="padding:18px"><input class="layui-input" type="password" readonly><button type="button" class="layui-btn layui-btn-primary" style="margin-top:12px"><i class="layui-icon layui-icon-eye"></i> 显示</button></div>'); const input=content.find('input').val(accessKey); content.find('button').on('click',function(){const visible=input.attr('type')==='text';input.attr('type',visible?'password':'text');$(this).html(`<i class="layui-icon layui-icon-${visible?'eye':'password'}"></i> ${visible?'显示':'隐藏'}`);}); layer.open({type:1,title:'设备接入密钥 - '+device.name,area:['500px','auto'],content}); }
+  function viewAccessKey(device) { request('/api/devices/'+encodeURIComponent(device.device_id)+'/access-key','GET',null,function(res){if(res.code===0)return showAccessKey(device,res.access_key);layer.msg((res.msg||'无法查看')+'，请在编辑设备中重新生成');}); }
+  table.on('tool(device-table)',function(obj){activeDevice=obj.data;if(obj.event==='access-key'){viewAccessKey(activeDevice);return;}if(obj.event==='edit'){openDeviceForm(activeDevice);return;}if(obj.event==='toggle'){request('/api/devices/'+encodeURIComponent(activeDevice.device_id),'PUT',{enabled:!activeDevice.enabled},function(res){if(res.code===0){layer.msg(activeDevice.enabled?'已停用设备接入':'已启用设备接入');renderDevices();}else layer.msg(res.msg);});return;}
+    if(obj.event==='remote'){if(!activeDevice.web_url)return layer.msg('请先为该设备填写管理地址'); layer.open({type:2,title:'设备远程管理 - '+activeDevice.name,area:['92%','92%'],resize:true,maxmin:true,content:activeDevice.web_url});}
+    if(obj.event==='channels'){layer.open({type:1,title:'通道绑定 - '+activeDevice.name,area:['600px','auto'],content:$('#channel-form').html()});}
+    if(obj.event==='schedule'){request('/api/channels?device_id='+encodeURIComponent(activeDevice.device_id),'GET',null,function(res){let html=$('#schedule-form').html();layer.open({type:1,title:'录像计划 - '+activeDevice.name,area:['600px','auto'],content:html,success:function(){$('#schedule-channel').html((res.data||[]).map(c=>`<option value="${c.id}">${c.channel_no} - ${c.name} (${c.app||'-'}/${c.stream||'-'})</option>`).join(''));form.render('select');}});});}
+  });
+  form.on('submit(channel-submit)',function(obj){if(!activeDevice)return false;request('/api/devices/'+encodeURIComponent(activeDevice.device_id)+'/channels','PUT',obj.field,function(res){if(res.code===0){layer.msg('通道已保存');layer.closeAll();}else layer.msg(res.msg);});return false;});
+  form.on('submit(schedule-submit)',function(obj){const data=obj.field;data.weekdays=data.weekdays.split(',').map(Number);request('/api/record-schedules','POST',data,function(res){if(res.code===0){layer.msg('录像计划已保存');layer.closeAll();}else layer.msg(res.msg);});return false;});
+  renderDevices();
+});
+</script>

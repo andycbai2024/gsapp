@@ -1,0 +1,23 @@
+<div style="padding:16px;max-width:860px">
+  <div class="layui-card"><div class="layui-card-header">GB28181 接入</div><div class="layui-card-body">
+    <form class="layui-form" id="gb28181-form">
+      <div class="layui-form-item"><label class="layui-form-label">启用服务</label><div class="layui-input-block"><input type="checkbox" name="enabled" lay-skin="switch" title="开启|关闭"></div></div>
+      <div class="layui-form-item"><label class="layui-form-label">监听地址</label><div class="layui-input-block"><input class="layui-input" name="host" placeholder="0.0.0.0" maxlength="255"><div class="layui-form-mid layui-word-aux">通常使用 0.0.0.0；只允许固定网卡时填写该网卡 IPv4 地址。</div></div></div>
+      <div class="layui-form-item"><label class="layui-form-label">SIP UDP 端口</label><div class="layui-input-block"><input class="layui-input" type="number" name="port" min="1" max="65535"></div></div>
+      <div class="layui-form-item"><label class="layui-form-label">平台 ID</label><div class="layui-input-block"><input class="layui-input" name="server_id" maxlength="64" placeholder="20 位国标平台 ID"></div></div>
+      <div class="layui-form-item"><label class="layui-form-label">SIP 域</label><div class="layui-input-block"><input class="layui-input" name="realm" maxlength="64" placeholder="默认与平台 ID 相同"></div></div>
+      <div class="layui-form-item"><label class="layui-form-label">RTP 媒体地址</label><div class="layui-input-block"><input class="layui-input" name="media_host" maxlength="15" placeholder="平台被设备访问的 IPv4 地址"><div class="layui-form-mid layui-word-aux">点播 SDP 使用此地址，不能填 0.0.0.0。</div></div></div>
+      <div class="layui-form-item"><label class="layui-form-label">Digest 密码</label><div class="layui-input-block"><input class="layui-input" type="password" name="password" autocomplete="new-password" placeholder="留空保留已有密码"><div class="layui-form-mid layui-word-aux" id="password-state"></div></div></div>
+      <div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn" lay-submit lay-filter="save-gb28181">保存并应用</button><button class="layui-btn layui-btn-primary" lay-submit lay-filter="reload-gb28181">刷新</button></div></div>
+    </form>
+  </div></div>
+</div>
+<script>
+layui.use(['form','jquery','layer'],function(){
+ const form=layui.form,$=layui.jquery,layer=layui.layer;
+ function load(){ $.get('/api/gb28181/config',function(res){ if(res.code!==0)return layer.msg(res.msg||'加载失败'); const value=res.data||{}; form.val('gb28181-form',{enabled:!!value.enabled,host:value.host||'',port:value.port||5060,server_id:value.server_id||'',realm:value.realm||'',media_host:value.media_host||''}); $('#password-state').text(value.password_set?'已设置密码；留空不修改':'未设置密码'); form.render(); }); }
+ load();
+ form.on('submit(save-gb28181)',function(obj){ const data={enabled:obj.field.enabled==='on',host:(obj.field.host||'').trim(),port:Number(obj.field.port),server_id:(obj.field.server_id||'').trim(),realm:(obj.field.realm||'').trim(),media_host:(obj.field.media_host||'').trim(),password:obj.field.password||''}; if(!data.host||!Number.isInteger(data.port)||data.port<1||data.port>65535||!data.server_id||(data.enabled&&!/^\d{1,3}(\.\d{1,3}){3}$/.test(data.media_host)))return layer.msg('请填写有效的监听地址、端口、平台 ID 和 RTP IPv4 地址'); $.ajax({url:'/api/gb28181/config',type:'PUT',contentType:'application/json',data:JSON.stringify(data),success:res=>{if(res.code===0){layer.msg(res.data.listening?'配置已保存，SIP 服务运行中':'配置已保存，SIP 服务已关闭');load();}else layer.msg(res.msg||'保存失败');},error:xhr=>layer.msg((xhr.responseJSON||{}).msg||'请求失败')}); return false; });
+ form.on('submit(reload-gb28181)',function(){load();return false;});
+});
+</script>

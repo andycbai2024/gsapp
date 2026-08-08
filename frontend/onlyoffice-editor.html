@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>平台 DOCX 笔录</title>
+  <style>
+    html,body,#editor { width:100%; height:100%; margin:0; overflow:hidden; font:14px "Microsoft YaHei",sans-serif; }
+    #status { position:fixed; z-index:2; right:16px; bottom:12px; padding:6px 10px; color:#fff; background:rgba(20,32,43,.8); border-radius:3px; }
+    #finalize { position:fixed; z-index:2; right:16px; top:12px; padding:7px 14px; border:0; border-radius:3px; color:#fff; background:#1677b9; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <div id="editor"></div><button id="finalize" type="button">定稿</button><div id="status">正在加载 DOCX 笔录...</div>
+  <script>
+    const transcriptId = new URLSearchParams(location.search).get('transcript_id');
+    const status = document.getElementById('status');
+    const finalize = document.getElementById('finalize');
+    finalize.onclick = async () => {
+      if (!confirm('请确认已在 OnlyOffice 中保存最新内容。定稿后不可再编辑，确定继续？')) return;
+      const response = await fetch(`/api/transcripts/${encodeURIComponent(transcriptId)}/finalize`, {method:'POST', credentials:'same-origin'});
+      const body = await response.json();
+      if (!response.ok || body.code !== 0) { status.textContent = body.msg || '定稿失败，请先保存 DOCX 生成版本'; return; }
+      finalize.style.display = 'none';
+      status.textContent = '已定稿，只读查看';
+      location.reload();
+    };
+    async function load() {
+      const response = await fetch(`/api/transcripts/${encodeURIComponent(transcriptId)}/onlyoffice/config`, {credentials:'same-origin'});
+      const body = await response.json();
+      if (!response.ok || body.code !== 0) throw new Error(body.msg || 'OnlyOffice 配置加载失败');
+      const data = body.data;
+      const script = document.createElement('script');
+      script.src = `${data.document_server_url}/web-apps/apps/api/documents/api.js`;
+      script.onload = () => {
+        new DocsAPI.DocEditor('editor', Object.assign({}, data.config, {events:{onDocumentStateChange:event => { status.textContent = event.data ? 'DOCX 有未保存修改' : `DOCX 已保存，版本 V${data.transcript.current_version}`; }, onError:event => { status.textContent = `OnlyOffice 错误：${event.data.errorCode}`; }}}));
+        if (data.transcript.status === 'finalized') finalize.style.display = 'none';
+        status.textContent = data.transcript.status === 'finalized' ? '已定稿，只读查看' : 'DOCX 已打开，使用编辑器保存按钮生成版本';
+      };
+      script.onerror = () => { status.textContent = 'OnlyOffice 服务不可用，请确认 Document Server 已启动'; };
+      document.head.appendChild(script);
+    }
+    load().catch(error => { status.textContent = error.message || '加载失败'; });
+  </script>
+</body>
+</html>

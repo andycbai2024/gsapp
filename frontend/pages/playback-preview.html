@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>录像回看预览</title>
+  <link rel="stylesheet" href="../assets/layui/css/layui.css">
+  <style>
+    body { margin: 0; background: #f5f6f7; }
+    .preview-page { max-width: 1440px; margin: 0 auto; padding: 20px; }
+    .preview-note { color: #909399; font-size: 13px; }
+    .video-stage { background: #202a33; padding: 12px; }
+    .video-placeholder { aspect-ratio: 16 / 9; max-height: 410px; display: flex; align-items: center; justify-content: center; background: #050708; color: #b7c2ca; font-size: 16px; }
+    .timeline { position: relative; height: 62px; margin: 18px 16px 0; }
+    .timeline-track { position: absolute; top: 25px; right: 0; left: 0; height: 6px; background: #52606b; border-radius: 3px; }
+    .timeline-segment { position: absolute; top: 25px; height: 6px; background: #16baaa; border-radius: 3px; }
+    .timeline-head { position: absolute; top: 15px; left: 41%; width: 2px; height: 28px; background: #ff5722; }
+    .timeline-label { position: absolute; top: 41px; color: #c6d1db; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main class="preview-page">
+    <div class="layui-card">
+      <div class="layui-card-header">本地录像管理 <span class="preview-note">预览数据，仅展示交互和信息布局</span></div>
+      <div class="layui-card-body">
+        <div class="layui-form" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+          <input class="layui-input" style="width:180px" value="讯问室审讯主机-01" aria-label="设备名称">
+          <input class="layui-input" style="width:210px" value="A2026001 讯问笔录核验" aria-label="案件">
+          <input class="layui-input" style="width:200px" placeholder="关键字 / 通道 / 流 ID">
+          <input class="layui-input" type="date" style="width:160px" value="2026-08-02">
+          <button type="button" class="layui-btn"><i class="layui-icon layui-icon-search"></i>查询</button>
+          <button type="button" class="layui-btn layui-btn-primary">重置</button>
+        </div>
+        <table id="preview-record-list"></table>
+      </div>
+    </div>
+  </main>
+
+  <script type="text/html" id="preview-toolbar">
+    <a class="layui-btn layui-btn-xs" lay-event="play">查看录像</a>
+    <a class="layui-btn layui-btn-xs layui-btn-normal" lay-event="download">下载 ZIP</a>
+    <a class="layui-btn layui-btn-xs layui-btn-danger" lay-event="delete">删除</a>
+  </script>
+  <script type="text/html" id="preview-player">
+    <div class="layui-form" style="padding:16px 20px 0">
+      <div class="layui-form-item">
+        <div class="layui-inline"><label class="layui-form-label">录像日期</label><div class="layui-input-inline"><select><option>2026-08-02</option></select></div></div>
+        <div class="layui-inline"><button type="button" class="layui-btn layui-btn-primary">下载当前片段</button></div>
+        <div class="layui-inline"><button type="button" class="layui-btn">下载已选片段 ZIP</button></div>
+      </div>
+      <div class="video-stage"><div class="video-placeholder"><i class="layui-icon layui-icon-play" style="margin-right:8px"></i>录像播放器区域</div>
+        <div class="timeline"><div class="timeline-track"></div><div class="timeline-segment" style="left:2%;width:21%"></div><div class="timeline-segment" style="left:29%;width:32%"></div><div class="timeline-segment" style="left:68%;width:26%"></div><div class="timeline-head"></div><span class="timeline-label" style="left:0">09:00</span><span class="timeline-label" style="left:47%">10:00</span><span class="timeline-label" style="right:0">11:00</span></div>
+      </div>
+      <table id="preview-segment-list"></table>
+    </div>
+  </script>
+  <script src="../assets/layui/layui.js"></script>
+  <script>
+    layui.use(['table', 'layer'], function () {
+      const table = layui.table;
+      const layer = layui.layer;
+      const recordings = [{
+        device_name: '讯问室审讯主机-01', recording_name: '讯问室审讯主机-01 - 审讯主通道', channel_name: '审讯主通道',
+        case_labels: 'A2026001 讯问笔录核验', isRecordingMP4: true, record_days: 90, format: 'MP4', slice_num: 3, total_storage_gb: 1.24,
+        start: '2026-08-02 09:15:00', duration: 300, filename: '2026-08-02-09-15-00.mp4'
+      }];
+      table.render({
+        elem: '#preview-record-list', data: recordings, page: false,
+        cols: [[
+          {type: 'numbers', title: '序号', width: 70}, {field: 'device_name', title: '设备名称', minWidth: 150},
+          {field: 'recording_name', title: '录像名称', minWidth: 220}, {field: 'channel_name', title: '通道名称', minWidth: 140},
+          {field: 'case_labels', title: '关联案件', minWidth: 220}, {field: 'isRecordingMP4', title: '录像状态', width: 100, templet: d => d.isRecordingMP4 ? '<span style="color:#16baaa;font-weight:600">录像中</span>' : '未录像'},
+          {field: 'record_days', title: '保留(天)', width: 90, align: 'center'}, {field: 'slice_num', title: '片段数', width: 90, align: 'center'},
+          {field: 'total_storage_gb', title: '存储容量', width: 110, templet: d => d.total_storage_gb + ' GB'},
+          {title: '操作', toolbar: '#preview-toolbar', width: 150, align: 'center'}
+        ]]
+      });
+      table.on('tool(preview-record-list)', function (obj) {
+        if (obj.event === 'delete') return layer.msg('预览模式不会删除录像');
+        if (obj.event === 'download') return layer.msg('预览模式将打包当前行的全部录像片段');
+        layer.open({
+          type: 1, title: '录像回看 - ' + obj.data.recording_name, area: ['1040px', '820px'], maxmin: true, resize: true,
+          content: document.getElementById('preview-player').innerHTML,
+          success: function () {
+            table.render({
+              elem: '#preview-segment-list', data: recordings, page: false, height: 220,
+              cols: [[
+                {type: 'checkbox'}, {field: 'device_name', title: '设备', minWidth: 140}, {field: 'channel_name', title: '通道', minWidth: 120},
+                {field: 'format', title: '格式', width: 80, align: 'center'}, {field: 'case_labels', title: '关联案件', minWidth: 200},
+                {field: 'start', title: '开始时间', minWidth: 170}, {field: 'duration', title: '时长(秒)', width: 100, align: 'center'},
+                {field: 'filename', title: '录像文件', minWidth: 190}, {title: '操作', width: 80, templet: '<button class="layui-btn layui-btn-xs">下载</button>'}
+              ]]
+            });
+          }
+        });
+      });
+    });
+  </script>
+</body>
+</html>

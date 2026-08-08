@@ -1,0 +1,140 @@
+<div style="padding:16px">
+  <div class="layui-card">
+    <div class="layui-card-header">用户管理</div>
+    <div class="layui-card-body">
+      <div id="ID_user_actions" style="margin-bottom:16px;display:none">
+        <button class="layui-btn" style="background:#16baaa" id="ID_add_user"><i class="layui-icon layui-icon-addition"></i> 新增用户</button>
+        <span style="margin-left:12px;color:#666">新用户使用平台初始密码，首次登录后必须修改。</span>
+      </div>
+      <table class="layui-hide" id="ID_user_table"></table>
+    </div>
+  </div>
+</div>
+<script>
+layui.use(['table', 'layer', 'form', 'jquery'], function () {
+  const table = layui.table, layer = layui.layer, form = layui.form, $ = layui.jquery;
+  let isAdmin = false;
+
+  function userFormHtml(editing) {
+    const adminFields = isAdmin
+      ? '<div class="layui-form-item"><label class="layui-form-label">账号类型</label><div class="layui-input-block"><select id="ID_user_role"><option value="viewer">查看者</option><option value="operator">操作员</option><option value="admin">管理员</option></select></div></div><div class="layui-form-item"><label class="layui-form-label">绑定 MAC</label><div class="layui-input-block"><input id="ID_user_bound_mac" class="layui-input" placeholder="可选，如 AA:BB:CC:DD:EE:FF"></div></div><div class="layui-form-item"><label class="layui-form-label">绑定 IP</label><div class="layui-input-block"><input id="ID_user_bound_ip" class="layui-input" placeholder="可选，如 192.168.1.10"></div></div><div class="layui-form-item"><label class="layui-form-label">账号状态</label><div class="layui-input-block"><input id="ID_user_enabled" type="checkbox" lay-skin="switch" title="启用|禁用"></div></div>'
+      : '';
+    return '<form class="layui-form" style="padding:18px"><div class="layui-form-item"><label class="layui-form-label">登录名称</label><div class="layui-input-block"><input id="ID_user_login" class="layui-input" ' + (editing ? 'disabled' : '') + '></div></div><div class="layui-form-item"><label class="layui-form-label">用户姓名</label><div class="layui-input-block"><input id="ID_user_full_name" class="layui-input"></div></div><div class="layui-form-item"><label class="layui-form-label">用户昵称</label><div class="layui-input-block"><input id="ID_user_nickname" class="layui-input"></div></div>' + adminFields + '<div class="layui-form-item"><div class="layui-input-block"><button type="button" id="ID_save_user" class="layui-btn">保存</button></div></div></form>';
+  }
+
+  function openUserForm(user) {
+    const editing = Boolean(user);
+    layer.open({
+      type: 1,
+      title: editing ? '编辑账号资料' : '新增用户',
+      area: ['520px', 'auto'],
+      content: userFormHtml(editing),
+      success: function (layerElement, index) {
+        $('#ID_user_login').val(editing ? user.username : '');
+        $('#ID_user_full_name').val(editing ? user.full_name : '');
+        $('#ID_user_nickname').val(editing ? user.nickname : '');
+        if (isAdmin) {
+          $('#ID_user_role').val(editing ? user.role : 'operator');
+            $('#ID_user_bound_mac').val(editing ? (user.bound_mac || '') : '');
+            $('#ID_user_bound_ip').val(editing ? (user.bound_ip || '') : '');
+          $('#ID_user_enabled').prop('checked', !editing || Boolean(user.enabled));
+          form.render();
+        }
+        $('#ID_save_user').on('click', function () {
+          const data = {
+            username: $('#ID_user_login').val().trim(),
+            full_name: $('#ID_user_full_name').val().trim(),
+            nickname: $('#ID_user_nickname').val().trim()
+          };
+          if (isAdmin) {
+            data.role = $('#ID_user_role').val();
+            data.enabled = $('#ID_user_enabled').prop('checked');
+            data.bound_mac = $('#ID_user_bound_mac').val().trim();
+            data.bound_ip = $('#ID_user_bound_ip').val().trim();
+          }
+          if (!data.full_name || !data.nickname || (!editing && !data.username)) return layer.msg('请填写登录名称、用户姓名和用户昵称');
+          $.ajax({
+            url: editing ? '/api/users/' + encodeURIComponent(user.username) : '/api/users',
+            type: editing ? 'PUT' : 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function (res) {
+              if (res.code !== 0) return layer.msg(res.msg || '保存失败');
+              if (res.initial_password) {
+                return layer.alert('用户已创建，初始密码：' + res.initial_password + '<br>请通知用户首次登录后修改密码。', { title: '创建成功' }, function (alertIndex) {
+                  layer.close(alertIndex);
+                  layer.close(index);
+                  renderUsers();
+                });
+              }
+              layer.close(index);
+              layer.msg('账号资料已保存');
+              renderUsers();
+            },
+            error: function (xhr) { layer.msg((xhr.responseJSON && xhr.responseJSON.msg) || '请求失败'); }
+          });
+        });
+      }
+    });
+  }
+
+  function renderUsers() {
+    $.get('/api/users', function (res) {
+      if (res.code !== 0) return layer.msg(res.msg || '加载失败');
+      table.render({
+        elem: '#ID_user_table',
+        data: res.data || [],
+        page: true,
+        limit: 10,
+        cols: [[
+          { field: 'id', title: '用户 ID', width: 90 },
+          { field: 'username', title: '登录名称', minWidth: 130 },
+          { field: 'full_name', title: '用户姓名', minWidth: 120 },
+          { field: 'nickname', title: '用户昵称', minWidth: 120 },
+          { field: 'role', title: '账号类型', width: 110, templet: function (item) { return { admin: '管理员', operator: '操作员', viewer: '查看者' }[item.role] || item.role; } },
+          { field: 'enabled', title: '状态', width: 90, templet: function (item) { return item.enabled ? '<span class="layui-badge layui-bg-green">启用</span>' : '<span class="layui-badge layui-bg-gray">禁用</span>'; } },
+          { field: 'must_change_password', title: '密码状态', width: 110, templet: function (item) { return item.must_change_password ? '<span class="layui-badge layui-bg-orange">待修改</span>' : '<span class="layui-badge layui-bg-green">正常</span>'; } },
+          { title: '绑定终端', minWidth: 180, templet: function (item) { return item.bound_mac || item.bound_ip ? (item.bound_mac || '-') + '<br>' + (item.bound_ip || '-') : '-'; } },
+          { field: 'created_at', title: '创建时间', minWidth: 175 },
+          { field: 'updated_at', title: '更新时间', minWidth: 175 },
+          { title: '操作', width: 240, templet: function (item) { if (!isAdmin) return '<a class="layui-btn layui-btn-xs" lay-event="edit">编辑资料</a>'; const deleteButton = Number(item.id) === 1000 ? '' : '<a class="layui-btn layui-btn-danger layui-btn-xs" lay-event="delete">删除</a>'; return '<a class="layui-btn layui-btn-xs" lay-event="edit">编辑</a><a class="layui-btn layui-btn-xs layui-btn-primary" lay-event="password">重置密码</a>' + deleteButton; } }
+        ]]
+      });
+    });
+  }
+
+  $('#ID_add_user').on('click', function () { openUserForm(null); });
+  table.on('tool(ID_user_table)', function (obj) {
+    if (obj.event === 'edit') return openUserForm(obj.data);
+    if (obj.event === 'password' && isAdmin) {
+      layer.prompt({ title: '为 ' + obj.data.username + ' 重置密码', formType: 1 }, function (value, index) {
+        $.ajax({
+          url: '/api/users/' + encodeURIComponent(obj.data.username),
+          type: 'PUT',
+          contentType: 'application/json',
+          data: JSON.stringify({ password: value, must_change_password: true }),
+          success: function (res) {
+            if (res.code === 0) {
+              layer.close(index);
+              layer.msg('密码已重置，用户下次登录需修改');
+              renderUsers();
+            } else layer.msg(res.msg || '重置失败');
+          }
+        });
+      });
+    }
+    if (obj.event === 'delete' && isAdmin) {
+      layer.confirm('删除账号后无法恢复，确定删除“' + obj.data.username + '”吗？', { title: '删除账号' }, function (index) {
+        $.ajax({ url: '/api/users/' + encodeURIComponent(obj.data.username), type: 'DELETE', success: function (res) { if (res.code === 0) { layer.close(index); layer.msg('账号已删除'); renderUsers(); } else layer.msg(res.msg || '删除失败'); }, error: function (xhr) { layer.msg((xhr.responseJSON && xhr.responseJSON.msg) || '请求失败'); } });
+      });
+    }
+  });
+
+  $.get('/api/auth/me', function (res) {
+    if (!res || res.code !== 0 || !res.data) return;
+    isAdmin = res.data.role === 'admin';
+    $('#ID_user_actions').toggle(isAdmin);
+    renderUsers();
+  });
+});
+</script>

@@ -1,0 +1,26 @@
+<div style="padding:16px;max-width:980px">
+  <div class="layui-card"><div class="layui-card-header">门户与核心安全配置</div><div class="layui-card-body">
+    <form class="layui-form" id="portal-settings-form">
+      <fieldset class="layui-elem-field"><legend>平台门户</legend><div class="layui-field-box">
+        <div class="layui-form-item"><label class="layui-form-label">平台标题</label><div class="layui-input-block"><input class="layui-input" name="title" required maxlength="64"></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">Logo 地址</label><div class="layui-input-block"><input class="layui-input" name="logo_url" placeholder="./assets/logo.svg 或 https://..." maxlength="300"></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">快捷入口</label><div class="layui-input-block"><textarea class="layui-textarea" name="quick_links" style="height:120px;font-family:Consolas,monospace" placeholder='[{"label":"业务系统","url":"https://example.com"}]'></textarea></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">隐藏菜单</label><div class="layui-input-block"><input class="layui-input" name="hidden_menu_pages" placeholder="以逗号分隔，例如 devices,video-wall"></div></div>
+      </div></fieldset>
+      <fieldset class="layui-elem-field"><legend>账户与水印</legend><div class="layui-field-box">
+        <div class="layui-form-item"><label class="layui-form-label">密码有效期</label><div class="layui-input-block"><input type="number" class="layui-input" name="password_expiry_days" min="0" max="3650"><div class="layui-form-mid layui-word-aux">0 表示不限制；到期后用户下次登录必须修改密码。</div></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">页面水印</label><div class="layui-input-block"><input type="checkbox" name="watermark_enabled" lay-skin="switch" title="开启|关闭"></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">水印文字</label><div class="layui-input-block"><input class="layui-input" name="watermark_text" maxlength="80" placeholder="可选固定文字"></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">叠加内容</label><div class="layui-input-block"><input type="checkbox" name="watermark_show_username" title="用户名"><input type="checkbox" name="watermark_show_ip" title="IP 地址"></div></div>
+      </div></fieldset>
+      <div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn" lay-submit lay-filter="save-portal-settings">保存配置</button></div></div>
+    </form>
+  </div></div>
+</div>
+<script>
+layui.use(['form','jquery','layer'],function(){
+ const form=layui.form,$=layui.jquery,layer=layui.layer;
+ $.get('/api/platform-settings',function(res){if(res.code!==0)return layer.msg(res.msg||'加载失败');const portal=res.data.portal||{},security=res.data.security||{};const formEl=$('#portal-settings-form');formEl.find('[name=title]').val(portal.title||'');formEl.find('[name=logo_url]').val(portal.logo_url||'');formEl.find('[name=quick_links]').val(JSON.stringify(portal.quick_links||[],null,2));formEl.find('[name=hidden_menu_pages]').val((portal.hidden_menu_pages||[]).join(','));formEl.find('[name=password_expiry_days]').val(security.password_expiry_days||0);formEl.find('[name=watermark_enabled]').prop('checked',!!security.watermark_enabled);formEl.find('[name=watermark_text]').val(security.watermark_text||'');formEl.find('[name=watermark_show_username]').prop('checked',security.watermark_show_username!==false);formEl.find('[name=watermark_show_ip]').prop('checked',!!security.watermark_show_ip);form.render();});
+ form.on('submit(save-portal-settings)',function(obj){let links;try{links=JSON.parse(obj.field.quick_links||'[]');}catch(error){return layer.msg('快捷入口必须是 JSON 数组');}const data={portal:{title:obj.field.title,logo_url:obj.field.logo_url,quick_links:links,hidden_menu_pages:(obj.field.hidden_menu_pages||'').split(',').map(item=>item.trim()).filter(Boolean)},security:{password_expiry_days:Number(obj.field.password_expiry_days||0),watermark_enabled:obj.field.watermark_enabled==='on',watermark_text:obj.field.watermark_text,watermark_show_username:obj.field.watermark_show_username==='on',watermark_show_ip:obj.field.watermark_show_ip==='on'}};$.ajax({url:'/api/platform-settings',type:'PUT',contentType:'application/json',data:JSON.stringify(data),success:res=>{if(res.code===0){layer.msg('配置已保存，刷新页面后完全生效');}else layer.msg(res.msg||'保存失败');},error:xhr=>layer.msg((xhr.responseJSON||{}).msg||'请求失败')});return false;});
+});
+</script>

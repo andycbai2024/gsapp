@@ -1,0 +1,43 @@
+services:
+  streamui-web-server:
+    build:
+      context: ./
+      dockerfile: ./Dockerfile
+    image: streamui-web
+    container_name: streamui-web-server
+    command: "bash start.sh"
+    # network_mode: "host"
+    ports:
+      - "80:10800"
+      - "10801:10801"
+    environment:
+      - ZLM_SERVER=http://zlm-server:80
+      - ZLM_RTMP_PUBLISH_URL=${ZLM_RTMP_PUBLISH_URL:-}
+    volumes:
+      - ../:/workspace
+      - /opt/media/bin/www/record:/opt/media/bin/www/record
+      - /opt/media/conf:/opt/media/conf
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    restart: unless-stopped
+    depends_on:
+      - zlm-server
+
+  zlm-server:
+    image: zlmediakit/zlmediakit:master
+    container_name: zlm-server
+    ports:
+      - "1935:1935"
+      - "8080:80"
+      - "8443:443"
+      - "8554:554"
+      - "10000:10000"
+      - "10000:10000/udp"
+      - "8000:8000/udp"
+      - "9000:9000/udp"
+    volumes:
+      - /opt/media/bin/www/record:/opt/media/bin/www/record
+      - /opt/media/conf:/opt/media/conf
+    restart: unless-stopped

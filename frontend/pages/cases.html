@@ -1,0 +1,263 @@
+<div style="padding:16px" id="ID_case_management">
+  <style>
+    #ID_case_management .case-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
+    #ID_case_management .case-toolbar .layui-input { width:280px; }
+    #ID_case_management .case-toolbar .layui-form-select { width:160px; }
+    #ID_case_management .case-toolbar .layui-form-select .layui-input { width:100%; }
+    #ID_case_management .case-status { font-weight:600; }
+    #ID_case_management .case-status.created { color:#999; }
+    #ID_case_management .case-status.assigned { color:#1e9fff; }
+    #ID_case_management .case-status.handling { color:#ffb800; }
+    #ID_case_management .case-status.closed { color:#16baaa; }
+  </style>
+  <div class="layui-card">
+    <div class="layui-card-header">案件管理</div>
+    <div class="layui-card-body">
+      <form class="layui-form case-toolbar">
+        <input id="ID_case_keyword" class="layui-input" placeholder="案件编号 / 案件名称 / 承办单位">
+        <select id="ID_case_status_filter"><option value="">全部案件状态</option><option value="created">待下发</option><option value="assigned">已下发</option><option value="handling">办理中</option><option value="closed">已办结</option><option value="archived">已归档</option></select>
+        <button type="button" id="ID_case_search" class="layui-btn layui-btn-primary"><i class="layui-icon layui-icon-search"></i> 查询</button>
+        <button type="button" id="ID_case_add" class="layui-btn"><i class="layui-icon layui-icon-addition"></i> 创建案件</button>
+        <button type="button" id="ID_transcript_template_manage" class="layui-btn layui-btn-primary">笔录模板</button>
+      </form>
+      <table class="layui-hide" id="ID_case_table"></table>
+    </div>
+  </div>
+</div>
+
+<script id="ID_case_toolbar" type="text/html">
+  <a class="layui-btn layui-btn-xs layui-btn-primary" lay-event="detail">办案详情</a>
+  <a class="layui-btn layui-btn-xs" lay-event="assign">下发设备</a>
+</script>
+
+<script id="ID_case_form" type="text/html">
+  <form class="layui-form" style="padding:18px" id="ID_case_form_el">
+    <div class="layui-form-item"><label class="layui-form-label">案件编号</label><div class="layui-input-block"><input class="layui-input" name="case_no" placeholder="不填由平台自动生成"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">案件名称</label><div class="layui-input-block"><input class="layui-input" name="name" required></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">案件类型</label><div class="layui-input-block"><select name="case_type"><option value="criminal">刑事案件</option><option value="administrative">行政案件</option><option value="other">其他案件</option></select></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">承办单位</label><div class="layui-input-block"><input class="layui-input" name="handling_unit"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">主办人员</label><div class="layui-input-block"><input class="layui-input" name="lead_investigator"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">案件案由</label><div class="layui-input-block"><textarea class="layui-textarea" name="case_reason" placeholder="简要记录案由或办案依据"></textarea></div></div>
+    <div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn" lay-submit lay-filter="case-submit">创建并保存</button></div></div>
+  </form>
+</script>
+
+<script id="ID_case_session_form" type="text/html">
+  <form class="layui-form" style="padding:18px" id="ID_case_session_form_el">
+    <div class="layui-form-item"><label class="layui-form-label">谈话房间</label><div class="layui-input-block"><select name="room_id" id="ID_case_session_room"><option value="">不关联房间</option></select></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">办案设备</label><div class="layui-input-block"><select name="device_id" id="ID_case_session_device" required></select></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">会话编号</label><div class="layui-input-block"><input class="layui-input" name="session_no" placeholder="不填由平台自动生成"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">会话类型</label><div class="layui-input-block"><select name="session_type"><option value="interrogation">讯问</option><option value="inquiry">询问</option><option value="identification">辨认</option><option value="other">其他</option></select></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">录像模式</label><div class="layui-input-block"><select name="recording_mode"><option value="disk">仅硬盘录制</option><option value="sync_burn">光盘与硬盘同步录制</option></select></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">计划开始</label><div class="layui-input-block"><input class="layui-input" type="datetime-local" name="planned_start_at"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">计划结束</label><div class="layui-input-block"><input class="layui-input" type="datetime-local" name="planned_end_at" placeholder="设置开始时间时必须设置结束时间"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">办案场所</label><div class="layui-input-block"><input class="layui-input" name="location"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">主持人员</label><div class="layui-input-block"><input class="layui-input" name="host_name"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">参与人员</label><div class="layui-input-block"><textarea class="layui-textarea" name="participant_summary" placeholder="记录被讯问人、讯问人员等摘要"></textarea></div></div>
+    <div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn" lay-submit lay-filter="case-session-submit">创建会话</button></div></div>
+  </form>
+</script>
+
+<script id="ID_case_assign_form" type="text/html">
+  <form class="layui-form" style="padding:18px" id="ID_case_assign_form_el">
+    <div class="layui-form-item"><label class="layui-form-label">目标设备</label><div class="layui-input-block"><select name="device_id" id="ID_case_assign_device" required></select></div></div>
+    <div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn" lay-submit lay-filter="case-assign-submit">下发案件</button></div></div>
+  </form>
+</script>
+
+<script id="ID_case_transcript_form" type="text/html">
+  <form class="layui-form" style="padding:18px" id="ID_case_transcript_form_el">
+    <div class="layui-form-item"><label class="layui-form-label">所属会话</label><div class="layui-input-block"><select name="session_id" id="ID_case_transcript_session" required></select></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">笔录名称</label><div class="layui-input-block"><input class="layui-input" name="title" required placeholder="例如：第一次讯问笔录"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">编辑方式</label><div class="layui-form-mid layui-word-aux">平台网页笔录（Tiptap）</div></div>
+    <div class="layui-form-item"><label class="layui-form-label">笔录模板</label><div class="layui-input-block"><select name="template_key" id="ID_case_transcript_template" required></select></div></div>
+    <div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn" lay-submit lay-filter="case-transcript-submit">创建并编辑</button></div></div>
+  </form>
+</script>
+
+<script id="ID_case_transcript_template_form" type="text/html">
+  <form class="layui-form" style="padding:18px" id="ID_case_transcript_template_form_el">
+    <div class="layui-form-item"><label class="layui-form-label">模板标识</label><div class="layui-input-block"><input class="layui-input" name="template_key" required placeholder="例如：interrogation_v1"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">模板名称</label><div class="layui-input-block"><input class="layui-input" name="name" required placeholder="例如：讯问笔录（标准版）"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">笔录类型</label><div class="layui-input-block"><select name="transcript_type"><option value="interrogation">讯问</option><option value="inquiry">询问</option><option value="identification">辨认</option><option value="other">其他</option></select></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">模板 JSON</label><div class="layui-input-block"><textarea class="layui-textarea" name="content" style="height:220px;font-family:Consolas,monospace" required></textarea><div class="layui-form-mid layui-word-aux">系统自动填入：{{case_no}}、{{case_name}}、{{session_no}}、{{date}}。人员字段可使用：{{姓名}}、{{年龄}}、{{身份证号}}。</div></div></div>
+    <div class="layui-form-item"><div class="layui-input-block"><button type="button" class="layui-btn layui-btn-primary" id="ID_fill_transcript_template_example">填入示例</button><button class="layui-btn" lay-submit lay-filter="case-transcript-template-submit">导入模板</button></div></div>
+  </form>
+</script>
+
+<script>
+layui.use(['table', 'layer', 'form', 'jquery'], function () {
+  const table = layui.table, layer = layui.layer, form = layui.form, $ = layui.jquery;
+  const caseTypes = { criminal:'刑事案件', administrative:'行政案件', other:'其他案件' };
+  const caseStatuses = { created:'待下发', assigned:'已下发', handling:'办理中', closed:'已办结', archived:'已归档' };
+  const assignmentStatuses = { pending:'待接收', received:'已接收', handling:'办理中', completed:'已完成' };
+  const sessionTypes = { interrogation:'讯问', inquiry:'询问', identification:'辨认', other:'其他' };
+  const sessionStatuses = { planned:'待开始', active:'进行中', finalizing:'封盘校验中', ended:'已结束', cancelled:'已取消' };
+  const recordingModes = { disk:'仅硬盘录制', sync_burn:'光盘与硬盘同步录制' };
+  const transcriptStatuses = { draft:'草稿', finalized:'已定稿' };
+  let devices = [], rows = [], activeCase = null;
+
+  function escapeHtml(value) { return String(value || '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char])); }
+  function request(url, method, data, done) { $.ajax({ url:url, type:method, contentType:data ? 'application/json' : undefined, data:data ? JSON.stringify(data) : undefined, success:done, error:xhr => layer.msg((xhr.responseJSON && xhr.responseJSON.msg) || '请求失败') }); }
+  function renderCases() {
+    const keyword = $('#ID_case_keyword').val().trim().toLowerCase();
+    const status = $('#ID_case_status_filter').val();
+    const visible = rows.filter(row => (!keyword || `${row.case_no} ${row.name} ${row.handling_unit}`.toLowerCase().includes(keyword)) && (!status || row.status === status));
+    table.render({ elem:'#ID_case_table', data:visible, page:true, limit:10, cols:[[
+      {field:'case_no', title:'案件编号', minWidth:180}, {field:'name', title:'案件名称', minWidth:200},
+      {field:'case_type', title:'类型', width:100, templet:row => caseTypes[row.case_type] || row.case_type}, {field:'handling_unit', title:'承办单位', minWidth:150},
+      {field:'status', title:'案件状态', width:100, templet:row => `<span class="case-status ${row.status}">${caseStatuses[row.status] || row.status}</span>`},
+      {field:'assigned_device_names', title:'已下发设备', minWidth:160, templet:row => row.assigned_device_names || '-'},
+      {field:'created_at', title:'创建时间', minWidth:170}, {title:'操作', toolbar:'#ID_case_toolbar', width:220}
+    ]] });
+  }
+  function loadCases() { const keyword = encodeURIComponent($('#ID_case_keyword').val().trim()); const status = encodeURIComponent($('#ID_case_status_filter').val()); request(`/api/cases?keyword=${keyword}&status=${status}`, 'GET', null, res => { if (res.code === 0) { rows = res.data || []; renderCases(); } else layer.msg(res.msg || '案件列表获取失败'); }); }
+  function loadDevices(done) { request('/api/devices', 'GET', null, res => { devices = (res.data || []).filter(device => device.enabled); done && done(); }); }
+  function openAssignmentDialog(caseRow) {
+    activeCase = caseRow;
+    if (!devices.length) return layer.msg('没有可下发的已启用设备');
+    layer.open({ type:1, title:`下发案件 - ${escapeHtml(caseRow.case_no)}`, area:['520px','auto'], content:$('#ID_case_assign_form').html(), success:() => {
+      $('#ID_case_assign_device').html(devices.map(device => `<option value="${escapeHtml(device.device_id)}">${escapeHtml(device.name)}（${escapeHtml(device.device_id)}）</option>`).join(''));
+      form.render('select');
+    }});
+  }
+  function openAssignmentList(caseRow) {
+    request(`/api/cases/${caseRow.id}/assignments`, 'GET', null, res => {
+      if (res.code !== 0) return layer.msg(res.msg || '下发记录获取失败');
+      layer.open({ type:1, title:`下发记录 - ${escapeHtml(caseRow.case_no)}`, area:['720px','auto'], content:'<div style="padding:16px"><table id="ID_case_assignment_table"></table></div>', success:() => table.render({ elem:'#ID_case_assignment_table', data:res.data || [], cols:[[
+        {field:'device_name', title:'设备名称', minWidth:150}, {field:'device_id', title:'设备 ID', minWidth:160},
+        {field:'status', title:'设备状态', width:100, templet:row => assignmentStatuses[row.status] || row.status},
+        {field:'assigned_at', title:'下发时间', minWidth:170}, {field:'acknowledged_at', title:'接收时间', minWidth:170}
+      ]] }) });
+    });
+  }
+  function renderCaseDetail(caseRow, detail, audits, auditChainValid) {
+    const info = detail.case;
+    const content = `<div style="padding:16px">
+      <div class="layui-row layui-col-space12"><div class="layui-col-md3"><b>案件编号：</b>${escapeHtml(info.case_no)}</div><div class="layui-col-md3"><b>案件状态：</b>${escapeHtml(caseStatuses[info.status] || info.status)}</div><div class="layui-col-md3"><b>承办单位：</b>${escapeHtml(info.handling_unit || '-')}</div><div class="layui-col-md3"><b>主办人员：</b>${escapeHtml(info.lead_investigator || '-')}</div></div>
+      <div class="layui-row layui-col-space12" style="margin-top:6px"><div class="layui-col-md9"><b>案件案由：</b>${escapeHtml(info.case_reason || '-')}</div><div class="layui-col-md3"><b>审计链：</b><span style="color:${auditChainValid ? '#16baaa' : '#ff5722'}">${auditChainValid ? '校验通过' : '校验异常'}</span></div></div>
+      <div style="margin:14px 0"><button type="button" class="layui-btn layui-btn-sm" id="ID_case_create_session">创建办案会话</button><button type="button" class="layui-btn layui-btn-sm layui-btn-primary" id="ID_case_create_transcript">新建在线笔录</button><button type="button" class="layui-btn layui-btn-sm layui-btn-primary" id="ID_case_completion_check">办结核验</button></div>
+      <div class="layui-tab" lay-filter="ID_case_detail_tabs"><ul class="layui-tab-title"><li class="layui-this">办案会话</li><li>同步音视频</li><li>光盘证据</li><li>编排命令</li><li>笔录</li><li>审计轨迹</li></ul><div class="layui-tab-content">
+        <div class="layui-tab-item layui-show"><table id="ID_case_detail_sessions"></table></div>
+        <div class="layui-tab-item"><table id="ID_case_detail_media"></table></div>
+        <div class="layui-tab-item"><table id="ID_case_detail_disc"></table></div>
+        <div class="layui-tab-item"><table id="ID_case_detail_commands"></table></div>
+        <div class="layui-tab-item"><table id="ID_case_detail_transcripts"></table></div>
+        <div class="layui-tab-item"><table id="ID_case_detail_audits"></table></div>
+      </div></div></div>`;
+    layer.open({ type:1, title:`案件详情 - ${escapeHtml(caseRow.case_no)}`, area:['1080px','720px'], content, success:() => {
+      table.render({ elem:'#ID_case_detail_sessions', data:detail.sessions || [], page:true, limit:8, cols:[[
+        {field:'session_no', title:'会话编号', minWidth:170}, {field:'session_type', title:'类型', width:90, templet:r => sessionTypes[r.session_type] || r.session_type}, {field:'recording_mode', title:'录像模式', minWidth:150, templet:r => recordingModes[r.recording_mode] || r.recording_mode}, {field:'device_name', title:'办案设备', minWidth:120}, {field:'status', title:'状态', width:100, templet:r => sessionStatuses[r.status] || r.status}, {field:'planned_start_at', title:'计划开始', minWidth:170}, {field:'planned_end_at', title:'计划结束', minWidth:170}, {title:'控制', width:130, templet:r => r.status === 'planned' ? `<button class="layui-btn layui-btn-xs case-session-command" data-id="${r.id}" data-action="start">开始</button>` : r.status === 'active' ? `<button class="layui-btn layui-btn-xs layui-btn-danger case-session-command" data-id="${r.id}" data-action="stop">停止</button>` : '-'}
+      ]] });
+      table.render({ elem:'#ID_case_detail_transcripts', data:detail.transcripts || [], page:true, limit:8, cols:[[
+        {field:'title', title:'笔录名称', minWidth:180}, {field:'session_no', title:'所属会话', minWidth:170}, {field:'transcript_type', title:'类型', width:90, templet:r => sessionTypes[r.transcript_type] || r.transcript_type}, {field:'editor_type', title:'编辑器', width:120, templet:r => r.editor_type === 'onlyoffice' ? '历史 DOCX（已停用）' : '网页笔录'}, {field:'current_version', title:'当前版本', width:90}, {field:'status', title:'状态', width:90, templet:r => transcriptStatuses[r.status] || r.status}, {field:'finalized_by', title:'定稿人', minWidth:110}, {field:'finalized_at', title:'定稿时间', minWidth:170}, {field:'current_file_hash', title:'SHA-256', minWidth:180}, {title:'操作', width:150, templet:r => r.editor_type === 'onlyoffice' ? '<span class="layui-font-gray">功能已停用</span>' : `<button class="layui-btn layui-btn-xs layui-btn-primary case-transcript-editor" data-id="${r.id}" data-editor="tiptap">${r.status === 'finalized' ? '查看' : '在线编辑'}</button>${r.current_archive_id && /\.(pdf|html?)$/i.test(r.current_file_name || '') ? ` <button class="layui-btn layui-btn-xs layui-btn-primary case-transcript-preview" data-archive-id="${r.current_archive_id}">预览</button>` : ''}`}
+      ]] });
+      table.render({ elem:'#ID_case_detail_media', data:detail.media || [], page:true, limit:8, cols:[[
+        {field:'media_type', title:'类型', width:80, templet:r => r.media_type === 'video' ? '录像' : '录音'}, {field:'session_no', title:'所属会话', minWidth:170}, {field:'original_name', title:'材料文件', minWidth:170}, {field:'source_stream', title:'来源流', minWidth:180}, {field:'started_at', title:'开始时间', minWidth:170}, {field:'ended_at', title:'结束时间', minWidth:170}, {field:'integrity_status', title:'完整性', width:90}, {field:'sha256', title:'SHA-256', minWidth:180}
+      ]] });
+      const discRows = (detail.sessions || []).filter(session => detail.disc_evidence && detail.disc_evidence[String(session.id)]).map(session => Object.assign({session_no:session.session_no}, detail.disc_evidence[String(session.id)]));
+      table.render({ elem:'#ID_case_detail_disc', data:discRows, cols:[[
+        {field:'session_no', title:'所属会话', minWidth:170}, {field:'status', title:'刻录状态', width:110}, {field:'drive_name', title:'光驱', width:100}, {field:'check_percent', title:'校验进度', width:100, templet:r => `${r.check_percent || 0}%`}, {field:'primary_hash', title:'光盘哈希', minWidth:190}, {field:'verified_hash', title:'校验哈希', minWidth:190}, {field:'verified_at', title:'校验完成时间', minWidth:170}
+      ]] });
+      table.render({ elem:'#ID_case_detail_commands', data:detail.commands || [], page:true, limit:8, cols:[[
+        {field:'session_no', title:'所属会话', minWidth:150}, {field:'action', title:'命令', width:110}, {field:'status', title:'执行状态', width:100}, {field:'scheduled_at', title:'计划执行时间', minWidth:170}, {field:'attempt_count', title:'尝试次数', width:90}, {field:'error_message', title:'异常信息', minWidth:220}, {field:'completed_at', title:'完成时间', minWidth:170}
+      ]] });
+      table.render({ elem:'#ID_case_detail_audits', data:audits || [], page:true, limit:8, cols:[[
+        {field:'created_at', title:'时间', minWidth:180}, {field:'action', title:'动作', minWidth:180}, {field:'actor', title:'操作主体', minWidth:130}, {field:'session_no', title:'会话', minWidth:160}, {field:'detail_json', title:'详情', minWidth:250}
+      ]] });
+      $('#ID_case_create_session').on('click', () => openSessionDialog(caseRow, detail.assignments || []));
+      $('#ID_case_create_transcript').on('click', () => openTranscriptDialog(caseRow, detail.sessions || []));
+      $('#ID_case_completion_check').on('click', () => openCompletionCheck(caseRow));
+      $('.case-session-command').on('click', function () { const button = $(this); request(`/api/case-sessions/${button.data('id')}/commands`, 'POST', {action:button.data('action')}, res => { if (res.code === 0) { layer.msg('命令已排队，正在等待设备执行'); setTimeout(() => openCaseDetail(caseRow), 500); } else layer.msg(res.msg || '命令创建失败'); }); });
+      $('.case-transcript-preview').on('click', function () { const archiveId = $(this).data('archive-id'); layer.open({ type:2, title:'笔录版本预览', area:['92%','92%'], resize:true, maxmin:true, content:`/api/archives/${archiveId}/preview` }); });
+      $('.case-transcript-editor').on('click', function () { const transcriptId = $(this).data('id'); const editor = $(this).data('editor'); const page = editor === 'onlyoffice' ? '/onlyoffice-editor.html' : '/transcript-editor.html'; layer.open({ type:2, title:editor === 'onlyoffice' ? '平台 DOCX 笔录' : '在线笔录', area:['96%','96%'], resize:true, maxmin:true, content:`${page}?transcript_id=${encodeURIComponent(transcriptId)}` }); });
+    }});
+  }
+  function openCaseDetail(caseRow) {
+    request(`/api/cases/${caseRow.id}`, 'GET', null, detailResult => {
+      if (detailResult.code !== 0) return layer.msg(detailResult.msg || '案件详情获取失败');
+      request(`/api/cases/${caseRow.id}/audit-logs`, 'GET', null, auditResult => renderCaseDetail(caseRow, detailResult.data, auditResult.code === 0 ? auditResult.data : [], auditResult.code === 0 && auditResult.audit_chain_valid));
+    });
+  }
+  function openSessionDialog(caseRow, assignments) {
+    const accepted = assignments.filter(item => item.status !== 'pending');
+    if (!accepted.length) return layer.msg('请等待设备接收案件后再创建办案会话');
+    activeCase = caseRow;
+    layer.open({ type:1, title:`创建办案会话 - ${escapeHtml(caseRow.case_no)}`, area:['620px','auto'], content:$('#ID_case_session_form').html(), success:() => {
+      const renderSessionDevices = items => {
+        $('#ID_case_session_device').html(items.map(item => `<option value="${escapeHtml(item.device_id)}">${escapeHtml(item.name || item.device_name)}（${escapeHtml(assignmentStatuses[item.status] || '已接收')}）</option>`).join('') || '<option value="">所选房间没有可用办案设备</option>');
+        form.render('select');
+      };
+      renderSessionDevices(accepted);
+      request('/api/resources/rooms', 'GET', null, roomResult => {
+        if (roomResult.code !== 0) return;
+        const rooms = (roomResult.data || []).filter(room => room.enabled);
+        $('#ID_case_session_room').html('<option value="">不关联房间</option>' + rooms.map(room => `<option value="${room.id}" data-location="${escapeHtml(room.location || room.name)}">${escapeHtml(room.area_name ? room.area_name + ' / ' : '')}${escapeHtml(room.name)}</option>`).join(''));
+        form.render('select');
+        $('#ID_case_session_room').on('change', function () {
+          const roomId = $(this).val();
+          if (!roomId) { renderSessionDevices(accepted); return; }
+          const selected = $(this).find('option:selected');
+          if (!$('#ID_case_session_form_el [name="location"]').val()) $('#ID_case_session_form_el [name="location"]').val(selected.data('location') || '');
+          request(`/api/resources/rooms/${encodeURIComponent(roomId)}/case-devices?case_id=${encodeURIComponent(caseRow.id)}`, 'GET', null, result => {
+            if (result.code === 0) renderSessionDevices(result.data || []); else layer.msg(result.msg || '获取房间设备失败');
+          });
+        });
+      });
+      form.render('select');
+    }});
+  }
+  function openTranscriptDialog(caseRow, sessions) {
+    if (!sessions.length) return layer.msg('请先创建办案会话');
+    activeCase = caseRow;
+    request('/api/transcript-templates', 'GET', null, result => {
+      if (result.code !== 0) return layer.msg(result.msg || '笔录模板获取失败');
+      layer.open({ type:1, title:`新建在线笔录 - ${escapeHtml(caseRow.case_no)}`, area:['560px','auto'], content:$('#ID_case_transcript_form').html(), success:() => {
+        $('#ID_case_transcript_session').html(sessions.map(session => `<option value="${session.id}" data-type="${escapeHtml(session.session_type)}">${escapeHtml(session.session_no)}（${escapeHtml(sessionTypes[session.session_type] || session.session_type)}）</option>`).join(''));
+        $('#ID_case_transcript_template').html((result.data || []).map(template => `<option value="${escapeHtml(template.key)}" data-type="${escapeHtml(template.transcript_type)}">${escapeHtml(template.name)}${template.builtin ? '（内置）' : '（导入）'}</option>`).join(''));
+        form.render('select');
+      }});
+    });
+  }
+  function openTranscriptTemplateDialog() {
+    layer.open({ type:1, title:'导入笔录模板', area:['720px','620px'], content:$('#ID_case_transcript_template_form').html(), success:() => {
+      $('#ID_fill_transcript_template_example').on('click', () => {
+        const example = {type:'doc',content:[{type:'heading',attrs:{level:1},content:[{type:'text',text:'讯问笔录'}]},{type:'paragraph',content:[{type:'text',text:'案件编号：{{case_no}}'}]},{type:'paragraph',content:[{type:'text',text:'案件名称：{{case_name}}'}]},{type:'paragraph',content:[{type:'text',text:'办案会话：{{session_no}}'}]},{type:'paragraph',content:[{type:'text',text:'时间：{{date}}'}]},{type:'qaLine',attrs:{kind:'question'}},{type:'qaLine',attrs:{kind:'answer'}},{type:'paragraph',content:[{type:'text',text:'以上笔录经核对无误。'}]}]};
+        $('#ID_case_transcript_template_form_el [name="content"]').val(JSON.stringify(example, null, 2));
+      });
+      form.render('select');
+    }});
+  }
+  function openCompletionCheck(caseRow) {
+    request(`/api/cases/${caseRow.id}/completion-report`, 'GET', null, result => {
+      if (result.code !== 0) return layer.msg(result.msg || '办结核验失败');
+      const report = result.data;
+      const issues = [];
+      if (!report.checks.has_device_assignment) issues.push('案件尚未下发任何办案设备');
+      if (!report.checks.all_devices_completed) issues.push(`未完成设备任务：${report.incomplete_assignments.map(item => `${item.device_id}（${assignmentStatuses[item.status] || item.status}）`).join('、')}`);
+      if (!report.checks.all_sessions_closed) issues.push(`未结束办案会话：${report.open_sessions.map(item => `${item.session_no}（${sessionStatuses[item.status] || item.status}）`).join('、')}`);
+      if (!report.checks.all_transcripts_finalized) issues.push(`未定稿笔录：${report.draft_transcripts.map(item => item.title).join('、')}`);
+      if (!report.checks.all_media_bound) issues.push('存在未绑定原始文件的音视频材料');
+      if (!report.checks.all_sessions_have_video_evidence) issues.push(`缺少录像归档：${report.missing_video_evidence.map(item => item.session_no).join('、')}`);
+      if (!report.checks.all_sync_burn_discs_verified) issues.push(`同步刻录未完成光盘校验：${report.unverified_discs.map(item => item.session_no).join('、')}`);
+      if (!report.checks.audit_chain_valid) issues.push('案件审计链校验异常');
+      if (!report.ready) return layer.alert(`<div style="padding:8px;line-height:1.8">办结核验未通过：<br>${issues.map(escapeHtml).join('<br>')}</div>`, { title:'案件办结核验' });
+      layer.confirm('办结核验通过。办结后不得再创建会话或下发新任务，确定办结该案件？', { title:'确认办结案件' }, index => {
+        request(`/api/cases/${caseRow.id}/close`, 'POST', {}, closeResult => { if (closeResult.code === 0) { layer.close(index); layer.closeAll('page'); layer.msg('案件已办结'); loadCases(); } else layer.alert(escapeHtml(closeResult.msg || '案件办结失败'), { title:'案件办结' }); });
+      });
+    });
+  }
+
+  $('#ID_case_search, #ID_case_status_filter').on('click change', loadCases);
+  $('#ID_case_add').on('click', () => layer.open({ type:1, title:'创建案件', area:['580px','auto'], content:$('#ID_case_form').html(), success:() => form.render() }));
+  $('#ID_transcript_template_manage').on('click', openTranscriptTemplateDialog);
+  form.on('submit(case-submit)', data => { request('/api/cases', 'POST', data.field, res => { if (res.code === 0) { layer.closeAll(); layer.msg('案件已创建'); loadCases(); } else layer.msg(res.msg); }); return false; });
+  form.on('submit(case-assign-submit)', data => { if (!activeCase) return false; request(`/api/cases/${activeCase.id}/assignments`, 'POST', data.field, res => { if (res.code === 0) { layer.closeAll(); layer.msg('案件已下发至设备'); loadCases(); } else layer.msg(res.msg); }); return false; });
+  form.on('submit(case-session-submit)', data => { if (!activeCase) return false; const payload = Object.assign({}, data.field); ['planned_start_at', 'planned_end_at'].forEach(field => { if (payload[field]) payload[field] = new Date(payload[field]).toISOString(); }); request(`/api/cases/${activeCase.id}/sessions`, 'POST', payload, res => { if (res.code === 0) { layer.closeAll(); layer.msg(payload.planned_start_at ? '办案会话与计划已创建' : '办案会话已创建'); openCaseDetail(activeCase); } else layer.msg(res.msg); }); return false; });
+  form.on('submit(case-transcript-submit)', data => { const sessionId = data.field.session_id; const selected = $('#ID_case_transcript_template option:selected'); const payload = { title:data.field.title, transcript_type:selected.data('type') || 'other', template_key:data.field.template_key, editor_type:'tiptap' }; request(`/api/case-sessions/${sessionId}/transcripts`, 'POST', payload, res => { if (res.code === 0) { layer.closeAll(); layer.open({ type:2, title:'在线笔录', area:['96%','96%'], resize:true, maxmin:true, content:`/transcript-editor.html?transcript_id=${encodeURIComponent(res.data.id)}` }); } else layer.msg(res.msg); }); return false; });
+  form.on('submit(case-transcript-template-submit)', data => { request('/api/transcript-templates', 'POST', data.field, res => { if (res.code === 0) { layer.closeAll(); layer.msg('笔录模板已导入，可在新建笔录时选择'); } else layer.msg(res.msg); }); return false; });
+  table.on('tool(ID_case_table)', obj => { if (obj.event === 'detail') openCaseDetail(obj.data); if (obj.event === 'assign') openAssignmentDialog(obj.data); });
+  form.render('select');
+  loadDevices(loadCases);
+});
+</script>

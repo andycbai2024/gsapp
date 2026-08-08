@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tiptap 笔录模板预览</title>
+  <style>
+    :root { --ink:#17212b; --line:#d9e1e8; --paper:#fff; --canvas:#edf2f5; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--canvas); color:var(--ink); font:14px/1.5 "Microsoft YaHei",sans-serif; }
+    .preview-head { height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 18px; background:#fff; border-bottom:1px solid var(--line); }
+    .preview-title { font-size:16px; font-weight:700; }
+    .preview-tag { color:#657381; font-size:12px; }
+    .preview-shell { max-width:900px; min-height:calc(100vh - 92px); margin:18px auto; padding:52px 70px; background:var(--paper); box-shadow:0 1px 8px rgba(23,33,43,.12); }
+    .transcript-prosemirror { min-height:640px; outline:none; font-size:16px; line-height:1.85; }
+    .transcript-prosemirror h1 { margin:0 0 30px; text-align:center; font-size:24px; }
+    .transcript-prosemirror p { margin:0 0 12px; }
+    .transcript-prosemirror .qa-line { display:flex; gap:8px; min-height:34px; margin:0 0 12px; }
+    .transcript-prosemirror .qa-label { flex:0 0 2.5em; font-weight:700; }
+    .transcript-prosemirror .qa-answer { flex:1; min-height:30px; border-bottom:1px solid #71808c; }
+    @media print { .preview-head { display:none; } body { background:#fff; } .preview-shell { max-width:none; min-height:0; margin:0; padding:0; box-shadow:none; } }
+  </style>
+</head>
+<body>
+  <header class="preview-head"><div class="preview-title" id="templateTitle">加载模板中</div><div class="preview-tag">Tiptap 只读样式演示</div></header>
+  <main class="preview-shell"><div id="editor"></div></main>
+  <script src="assets/tiptap-editor.bundle.js"></script>
+  <script>
+    const templateKey = new URLSearchParams(location.search).get('template_key') || 'lm700_interrogation';
+    async function load() {
+      const response = await fetch(`/api/transcript-templates/${encodeURIComponent(templateKey)}/preview`, {credentials:'same-origin'});
+      const body = await response.json();
+      if (!response.ok || body.code !== 0) throw new Error(body.msg || '模板加载失败');
+      document.getElementById('templateTitle').textContent = body.data.name;
+      window.StreamUiTiptap(document.getElementById('editor'), body.data.content, false, () => {});
+    }
+    load().catch(error => { document.getElementById('templateTitle').textContent = error.message || '模板加载失败'; });
+  </script>
+</body>
+</html>

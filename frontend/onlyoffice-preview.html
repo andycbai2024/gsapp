@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OnlyOffice 笔录模板预览</title>
+  <style>
+    html, body, #editor { width: 100%; height: 100%; margin: 0; overflow: hidden; font: 14px "Microsoft YaHei", sans-serif; }
+    #status { position: fixed; z-index: 2; right: 16px; bottom: 12px; padding: 6px 10px; color: #fff; background: rgba(20, 32, 43, .8); border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="editor"></div><div id="status">正在加载讯问模板...</div>
+  <script>
+    const status = document.getElementById('status');
+    async function load() {
+      const response = await fetch('/api/onlyoffice/demo/config', {credentials: 'same-origin'});
+      const body = await response.json();
+      if (!response.ok || body.code !== 0) throw new Error(body.msg || 'OnlyOffice 预览配置加载失败');
+      const data = body.data;
+      const script = document.createElement('script');
+      script.src = `${data.document_server_url}/web-apps/apps/api/documents/api.js`;
+      script.onload = () => {
+        new DocsAPI.DocEditor('editor', Object.assign({}, data.config, {events: {onError: event => { status.textContent = `OnlyOffice 错误：${event.data.errorCode}`; }}}));
+        status.textContent = '讯问模板只读预览';
+      };
+      script.onerror = () => { status.textContent = 'OnlyOffice 服务不可用'; };
+      document.head.appendChild(script);
+    }
+    load().catch(error => { status.textContent = error.message || '加载失败'; });
+  </script>
+</body>
+</html>
