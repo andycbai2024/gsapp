@@ -35,6 +35,14 @@ from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import FastAPI, File, Form, Header, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.platypus import Paragraph as PdfParagraph
+from reportlab.platypus import SimpleDocTemplate, Spacer
 from starlette.background import BackgroundTask
 from db import delete_pull_proxy as db_delete_pull_proxy
 from db import delete_record_policy as db_delete_record_policy
@@ -131,6 +139,7 @@ from db import delete_archive_file as db_delete_archive_file
 from db import get_archive_file as db_get_archive_file
 from db import get_archive_folder as db_get_archive_folder
 from db import list_archive_files as db_list_archive_files
+from db import list_case_archive_files as db_list_case_archive_files
 from db import list_archive_folders as db_list_archive_folders
 from db import update_archive_file as db_update_archive_file
 from db import assign_case_to_device as db_assign_case_to_device
@@ -2257,7 +2266,44 @@ def _preview_tiptap_template(content: dict) -> dict:
 _DOCX_FIELD_NAMES = ("身份证（有效身份证件）号码", "住址（联系地址）", "第二被约谈人身份证号", "第二被约谈人工作单位", "第二被约谈人单位职务", "谈话人1单位职务", "谈话人2单位职务", "办案人员签名", "当事人签名", "记录人签名", "执法证件号1", "执法证件号2", "办案机关", "办案人员", "开始时间", "结束时间", "身份证号", "工作单位", "联系电话", "联系地址", "谈话地点", "讯问地点", "询问地点", "约谈地点", "讯问机关", "询问机关", "讯问人员", "询问人员", "被讯问人", "被询问人", "被约谈人", "谈话人一", "谈话人二", "被约谈人一", "被约谈人二", "姓名", "性别", "年龄", "民族", "职务", "住址", "日期", "时间", "地点", "案由")
 
 
+def _docx_field_name(before: str, ordinal: int, used: dict[str, int]) -> str:
+    labels = tuple(_DOCX_FIELD_NAMES) + ("人员签名", "第页", "共页", "证件编号")
+    label = max(labels, key=lambda item: before.rfind(item))
+    if before.rfind(label) < 0:
+        label = "填写字段"
+    used[label] = used.get(label, 0) + 1
+    return label if used[label] == 1 else f"{label}（{used[label]}）"
+
+
+def _docx_time_inline_content(value: str) -> list[dict] | None:
+    match = re.match(r"^(?P<prefix>.*?(?P<label>(?:讯问|询问|谈话|起止)?时间)[：:]?)(?P<tail>[\s\u3000_年月日时分至]+)$", value)
+    if not match:
+        return None
+    result = [_tiptap_text(match.group("prefix"))]
+    tail = match.group("tail")
+    offset = 0
+    segment = "开始"
+    for field_match in re.finditer(r"[\s\u3000_]{3,}(?P<unit>[年月日时分])", tail):
+        between = tail[offset:field_match.start()]
+        if "至" in between:
+            segment = "结束"
+        if between:
+            result.append(_tiptap_text(between))
+        unit = field_match.group("unit")
+        result.append({"type": "inputField", "attrs": {"name": f"{match.group('label')}{segment}时间（{unit}）"}})
+        result.append(_tiptap_text(unit))
+        offset = field_match.end()
+    if offset == 0:
+        return None
+    if offset < len(tail):
+        result.append(_tiptap_text(tail[offset:]))
+    return result
+
+
 def _docx_inline_content(value: str) -> list[dict]:
+    time_content = _docx_time_inline_content(value)
+    if time_content:
+        return time_content
     pattern = re.compile(r"\{\{([^{}\n]{1,80})\}\}|(" + "|".join(re.escape(name) for name in _DOCX_FIELD_NAMES) + r")(：|:)?([\s\u3000_]{3,})")
     result: list[dict] = []
     offset = 0
@@ -2276,7 +2322,29 @@ def _docx_inline_content(value: str) -> list[dict]:
     return result or [_tiptap_text(value)]
 
 
-def _docx_append_text(nodes: list[dict], value: str) -> None:
+def _docx_paragraph_inline_content(paragraph: Paragraph) -> list[dict]:
+    value = paragraph.text.replace("\xa0", " ")
+    time_content = _docx_time_inline_content(value)
+    if time_content:
+        return time_content
+    if not any(run.font.underline and re.fullmatch(r"[\s\u3000_]+", run.text or "") for run in paragraph.runs):
+        return _docx_inline_content(value)
+    result: list[dict] = []
+    before = ""
+    used: dict[str, int] = {}
+    ordinal = 0
+    for run in paragraph.runs:
+        text = run.text.replace("\xa0", " ")
+        if run.font.underline and re.fullmatch(r"[\s\u3000_]+", text or ""):
+            ordinal += 1
+            result.append({"type": "inputField", "attrs": {"name": _docx_field_name(before, ordinal, used)}})
+        elif text:
+            result.append(_tiptap_text(text))
+        before += text
+    return result or [_tiptap_text(value)]
+
+
+def _docx_append_text(nodes: list[dict], value: str, inline_content: list[dict] | None = None) -> None:
     value = value.replace("\xa0", " ").strip("\n")
     if not value.strip():
         return
@@ -2296,7 +2364,7 @@ def _docx_append_text(nodes: list[dict], value: str) -> None:
     elif not nodes and "笔录" in re.sub(r"\s+", "", compact) and len(compact) <= 40:
         nodes.append({"type": "heading", "attrs": {"level": 1}, "content": [_tiptap_text(re.sub(r"\s+", "", compact))]})
     else:
-        nodes.append({"type": "paragraph", "content": _docx_inline_content(value)})
+        nodes.append({"type": "paragraph", "content": inline_content or _docx_inline_content(value)})
 
 
 def _docx_template_content(payload: bytes) -> dict:
@@ -2309,7 +2377,8 @@ def _docx_template_content(payload: bytes) -> dict:
     nodes: list[dict] = []
     for child in document.element.body.iterchildren():
         if child.tag.endswith("}p"):
-            _docx_append_text(nodes, Paragraph(child, document).text)
+            paragraph = Paragraph(child, document)
+            _docx_append_text(nodes, paragraph.text, _docx_paragraph_inline_content(paragraph))
         elif child.tag.endswith("}tbl"):
             table = Table(child, document)
             for row in table.rows:
@@ -2458,6 +2527,22 @@ def _transcript_snapshot_html(transcript: dict, content: dict) -> str:
     return f"""<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>{html.escape(str(transcript['title']))}</title><style>body{{max-width:820px;margin:32px auto;font:16px/1.8 'Microsoft YaHei',sans-serif;color:#111}}h1{{text-align:center}}p{{margin:0 0 12px}}blockquote{{margin:12px 0;padding-left:16px;border-left:3px solid #999}}.qa-line{{display:flex;gap:8px}}.qa-line strong{{flex:0 0 2.5em}}.qa-line span{{flex:1;border-bottom:1px solid #333;min-height:1.8em}}.input-field{{display:inline-block;min-width:8em;border-bottom:1px solid #333}}@media print{{body{{margin:0}}}}</style></head><body>{body}</body></html>"""
 
 
+def _transcript_pdf_bytes(transcript: dict, content: dict) -> bytes:
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    output = io.BytesIO()
+    document = SimpleDocTemplate(output, pagesize=A4, leftMargin=22 * mm, rightMargin=22 * mm, topMargin=18 * mm, bottomMargin=18 * mm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("TranscriptTitle", parent=styles["Title"], fontName="STSong-Light", fontSize=18, leading=26, alignment=TA_CENTER, spaceAfter=12)
+    body_style = ParagraphStyle("TranscriptBody", parent=styles["BodyText"], fontName="STSong-Light", fontSize=11, leading=20, spaceAfter=5, wordWrap="CJK")
+    story = [PdfParagraph(html.escape(str(transcript["title"])), title_style)]
+    for line in _tiptap_docx_lines(content):
+        safe_line = html.escape(line).replace("\n", "<br/>") or "&#160;"
+        story.append(PdfParagraph(safe_line, body_style))
+    story.append(Spacer(1, 8))
+    document.build(story)
+    return output.getvalue()
+
+
 @app.get("/api/cases", summary="获取案件列表", tags=["案件"])
 async def get_cases(keyword: str = Query("", max_length=160), status: str = Query("", max_length=32)):
     if status and status not in {"created", "assigned", "handling", "closed", "archived"}:
@@ -2502,7 +2587,47 @@ async def get_case_detail(case_id: int):
         "disc_evidence": {str(session["id"]): db_get_case_disc_evidence(session_id=int(session["id"])) for session in db_list_case_sessions(case_id=case_id)},
         "transcripts": db_list_case_transcripts(case_id=case_id),
         "media": db_list_case_media_assets(case_id=case_id),
+        "archives": db_list_case_archive_files(case_id=case_id),
     }}
+
+
+@app.get("/api/cases/{case_id}/archives", summary="获取案件归档材料", tags=["案件"])
+async def get_case_archives(case_id: int):
+    if not db_get_case(case_id=case_id):
+        return {"code": -1, "msg": "案件不存在"}
+    return {"code": 0, "data": db_list_case_archive_files(case_id=case_id)}
+
+
+@app.get("/api/cases/{case_id}/archive-package", summary="下载案件归档包", tags=["案件"])
+async def download_case_archive_package(case_id: int, request: Request):
+    if not _can_manage(request):
+        return {"code": 403, "msg": "需要管理员或操作员权限"}
+    case = db_get_case(case_id=case_id)
+    if not case:
+        return {"code": -1, "msg": "案件不存在"}
+    archives = db_list_case_archive_files(case_id=case_id)
+    handle, temporary_name = tempfile.mkstemp(prefix=f"case-{case_id}-", suffix=".zip")
+    os.close(handle)
+    package_path = Path(temporary_name)
+    try:
+        manifest = {"case_no": case["case_no"], "case_name": case["name"], "generated_at": _now_iso(), "files": []}
+        with zipfile.ZipFile(package_path, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as package:
+            for archive in archives:
+                try:
+                    source = _archive_storage_path(str(archive["device_id"]), str(archive["stored_name"]))
+                except ValueError:
+                    continue
+                if not source.is_file():
+                    continue
+                archive_name = f"materials/{int(archive['id']):04d}_{Path(str(archive['original_name'])).name}"
+                package.write(source, archive_name)
+                manifest["files"].append({"archive_id": archive["id"], "path": archive_name, "type": archive["archive_type"], "sha256": archive["sha256"], "size": archive["file_size"], "created_at": archive["created_at"]})
+            package.writestr("归档清单.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+    except OSError:
+        package_path.unlink(missing_ok=True)
+        return {"code": -1, "msg": "案件归档包生成失败"}
+    safe_case_no = re.sub(r"[^A-Za-z0-9_-]+", "_", str(case["case_no"])) or f"case_{case_id}"
+    return FileResponse(package_path, media_type="application/zip", filename=f"{safe_case_no}-归档资料.zip", background=BackgroundTask(package_path.unlink, missing_ok=True))
 
 
 @app.get("/api/cases/{case_id}/audit-logs", summary="获取案件审计记录", tags=["案件"])
@@ -2762,16 +2887,16 @@ async def post_publish_case_transcript(transcript_id: int, request: Request):
         quality_issues = _transcript_quality_issues(transcript, content)
         if quality_issues:
             return {"code": -1, "msg": "笔录尚未满足定稿要求", "data": {"issues": quality_issues}}
-    document = _transcript_snapshot_html(transcript, content).encode("utf-8")
+    document = _transcript_pdf_bytes(transcript, content)
     digest = hashlib.sha256(document).hexdigest()
     next_version = int(transcript["current_version"]) + 1
-    original_name = f"{transcript['session_no']}-{transcript['title']}-V{next_version}.html"[:240]
-    stored_name = f"{uuid.uuid4().hex}.html"
+    original_name = f"{transcript['session_no']}-{transcript['title']}-V{next_version}.pdf"[:240]
+    stored_name = f"{uuid.uuid4().hex}.pdf"
     try:
         target = _archive_storage_path(str(transcript["device_id"]), stored_name)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(document)
-        archive = db_create_archive_file(device_id=str(transcript["device_id"]), case_id=int(transcript["case_id"]), session_id=int(transcript["session_id"]), folder_id=None, archive_type="transcript", status="closed", title=str(transcript["title"]), original_name=original_name, stored_name=stored_name, file_size=len(document), content_type="text/html; charset=utf-8", sha256=digest, uploaded_by=actor)
+        archive = db_create_archive_file(device_id=str(transcript["device_id"]), case_id=int(transcript["case_id"]), session_id=int(transcript["session_id"]), folder_id=None, archive_type="transcript", status="closed", title=str(transcript["title"]), original_name=original_name, stored_name=stored_name, file_size=len(document), content_type="application/pdf", sha256=digest, uploaded_by=actor)
         versioned = db_add_case_transcript_version(transcript_id=transcript_id, archive_id=int((archive or {})["id"]), content_hash=digest, note=str(body.get("note") or "在线笔录版本")[:500], created_by=actor) if archive else None
     except OSError:
         return {"code": -1, "msg": "笔录版本归档失败"}
@@ -3345,8 +3470,8 @@ async def preview_transcript_archive(archive_id: int, request: Request):
         return {"code": -1, "msg": "档案不存在"}
     file_name = str(archive["original_name"])
     suffix = Path(file_name).suffix.lower()
-    if suffix not in {".pdf", ".html", ".htm"}:
-        return {"code": -1, "msg": "仅支持在线预览 PDF 或 HTML 笔录文件"}
+    if suffix not in {".pdf", ".html", ".htm", ".mp4", ".webm", ".mov", ".ogg"}:
+        return {"code": -1, "msg": "仅支持在线预览 PDF、HTML 或视频文件"}
     try:
         file_path = _archive_storage_path(str(archive["device_id"]), str(archive["stored_name"]))
     except ValueError:
@@ -3354,7 +3479,7 @@ async def preview_transcript_archive(archive_id: int, request: Request):
     if not file_path.is_file():
         return {"code": -1, "msg": "归档文件不存在"}
     db_log_case_archive_event(archive_id=archive_id, action="evidence.previewed", actor=str((_request_user(request) or {}).get("username", "unknown")))
-    media_type = "application/pdf" if suffix == ".pdf" else "text/html; charset=utf-8"
+    media_type = "application/pdf" if suffix == ".pdf" else "text/html; charset=utf-8" if suffix in {".html", ".htm"} else archive.get("content_type") or "video/mp4"
     return FileResponse(file_path, media_type=media_type, filename=file_name, content_disposition_type="inline")
 
 

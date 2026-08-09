@@ -96,6 +96,7 @@ from .sqlite import delete_archive_file
 from .sqlite import get_archive_file
 from .sqlite import get_archive_folder
 from .sqlite import list_archive_files
+from .sqlite import list_case_archive_files
 from .sqlite import list_archive_folders
 from .sqlite import update_archive_file
 from .sqlite import assign_case_to_device

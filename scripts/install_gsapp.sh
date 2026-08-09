@@ -400,7 +400,7 @@ EOF
 install_python_deps() {
   if [[ "$QUICK_DEPLOY" -eq 1 ]]; then
     [[ -x "$INSTALL_DIR/backend/.venv/bin/python" ]] || die "Quick deployment requires an existing backend virtual environment; run without --quick first"
-    "$INSTALL_DIR/backend/.venv/bin/python" -c 'import fastapi, uvicorn, apscheduler, httpx, psutil, docker, docx, multipart, sqlite3' || die "Quick deployment found an incomplete backend virtual environment; run without --quick"
+    "$INSTALL_DIR/backend/.venv/bin/python" -c 'import fastapi, uvicorn, apscheduler, httpx, psutil, docker, docx, multipart, reportlab, sqlite3' || die "Quick deployment found an incomplete backend virtual environment; run without --quick"
     log "Quick deployment: reusing existing Python virtual environment"
     return
   fi
@@ -420,10 +420,10 @@ install_python_deps() {
   fi
   if [[ -n "$PYTHON_RUNTIME_LD_LIBRARY_PATH" ]]; then
     env LD_LIBRARY_PATH="$PYTHON_RUNTIME_LD_LIBRARY_PATH" "$INSTALL_DIR/backend/.venv/bin/pip" install "${pip_options[@]}" \
-      fastapi uvicorn apscheduler httpx psutil docker python-multipart python-docx
+      fastapi uvicorn apscheduler httpx psutil docker python-multipart python-docx reportlab
   else
     "$INSTALL_DIR/backend/.venv/bin/pip" install "${pip_options[@]}" \
-      fastapi uvicorn apscheduler httpx psutil docker python-multipart python-docx
+      fastapi uvicorn apscheduler httpx psutil docker python-multipart python-docx reportlab
   fi
 }
 

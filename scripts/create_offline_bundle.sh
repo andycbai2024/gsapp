@@ -138,7 +138,8 @@ log "Downloading Python wheels"
   psutil \
   docker \
   python-multipart \
-  python-docx
+  python-docx \
+  reportlab
 
 log "Copying ZLMediaKit runtime"
 install -m 0755 "$ZLM_BIN_DIR/MediaServer" "$PAYLOAD_DIR/zlm/MediaServer"

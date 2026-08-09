@@ -104,7 +104,7 @@
   <hr>
   <form class="layui-form" style="padding:0 18px 18px" id="ID_case_transcript_docx_form_el">
     <div class="layui-form-item"><label class="layui-form-label">DOCX 文件</label><div class="layui-input-block"><input class="layui-input" name="file" type="file" accept=".docx" required></div></div>
-    <div class="layui-form-item"><label class="layui-form-label">模板标识</label><div class="layui-input-block"><input class="layui-input" name="template_key" required placeholder="例如：lm700_interrogation_docx"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">模板标识</label><div class="layui-input-block"><input class="layui-input" name="template_key" placeholder="留空自动生成；如需指定请用英文、数字和下划线"><div class="layui-form-mid layui-word-aux">用于系统内部识别，模板名称支持中文。</div></div></div>
     <div class="layui-form-item"><label class="layui-form-label">模板名称</label><div class="layui-input-block"><input class="layui-input" name="name" placeholder="默认使用 DOCX 文件名"></div></div>
     <div class="layui-form-item"><label class="layui-form-label">笔录类型</label><div class="layui-input-block"><select name="transcript_type"><option value="interrogation">讯问</option><option value="inquiry">询问</option><option value="identification">辨认</option><option value="other">其他</option></select><div class="layui-form-mid layui-word-aux">自动转换段落、表格、问答和身份证等空白字段。</div></div></div>
     <div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn layui-btn-normal" lay-submit lay-filter="case-transcript-docx-template-submit">导入 DOCX 模板</button></div></div>
@@ -172,6 +172,7 @@ layui.use(['table', 'layer', 'form', 'jquery'], function () {
     const assignments = detail.assignments || [];
     const sessions = detail.sessions || [];
     const transcripts = detail.transcripts || [];
+    const archives = detail.archives || [];
     const assignmentAccepted = assignments.some(item => item.status !== 'pending');
     const hasScheduledSession = sessions.some(item => item.status === 'planned');
     const hasActiveSession = sessions.some(item => item.status === 'active');
@@ -193,17 +194,19 @@ layui.use(['table', 'layer', 'form', 'jquery'], function () {
     if (sessions.length && !['closed', 'archived'].includes(info.status)) actions.push('<button type="button" class="layui-btn layui-btn-sm layui-btn-primary" id="ID_case_create_transcript">新建在线笔录</button>');
     if (!['closed', 'archived'].includes(info.status)) actions.push('<button type="button" class="layui-btn layui-btn-sm layui-btn-primary" id="ID_case_completion_check">办结核验</button>');
     if (info.status === 'closed') actions.push('<button type="button" class="layui-btn layui-btn-sm layui-btn-warm" id="ID_case_archive">材料归档</button>');
+    if (info.status === 'archived') actions.push(`<a class="layui-btn layui-btn-sm layui-btn-warm" href="/api/cases/${info.id}/archive-package" target="_blank">下载归档包</a>`);
     const content = `<style>.case-workflow-steps{display:grid;grid-template-columns:repeat(7,minmax(84px,1fr));gap:6px;margin:16px 0}.case-workflow-step{min-height:54px;padding:8px;background:#f4f7f8;border:1px solid #e0e7ea;color:#75818a;font-size:12px}.case-workflow-step span{display:inline-block;width:18px;height:18px;margin-right:5px;text-align:center;line-height:18px;color:#fff;background:#aebac0;border-radius:50%}.case-workflow-step b{font-weight:600}.case-workflow-step.done{border-color:#95d7cf;color:#16877d;background:#edf9f7}.case-workflow-step.done span{background:#16baaa}.case-workflow-step.current{border-color:#f0b53b;color:#a66d00;background:#fff9e8}.case-workflow-step.current span{background:#ffb800}@media(max-width:800px){.case-workflow-steps{grid-template-columns:repeat(2,1fr)}}</style><div style="padding:16px">
       <div class="layui-row layui-col-space12"><div class="layui-col-md3"><b>案件编号：</b>${escapeHtml(info.case_no)}</div><div class="layui-col-md3"><b>案件状态：</b>${escapeHtml(caseStatuses[info.status] || info.status)}</div><div class="layui-col-md3"><b>承办单位：</b>${escapeHtml(info.handling_unit || '-')}</div><div class="layui-col-md3"><b>主办人员：</b>${escapeHtml(info.lead_investigator || '-')}</div></div>
       <div class="layui-row layui-col-space12" style="margin-top:6px"><div class="layui-col-md9"><b>案件案由：</b>${escapeHtml(info.case_reason || '-')}</div><div class="layui-col-md3"><b>审计链：</b><span style="color:${auditChainValid ? '#16baaa' : '#ff5722'}">${auditChainValid ? '校验通过' : '校验异常'}</span></div></div>
       <div class="case-workflow-steps">${steps}</div>
       <div style="margin:14px 0">${actions.join('')}</div>
-      <div class="layui-tab" lay-filter="ID_case_detail_tabs"><ul class="layui-tab-title"><li class="layui-this">办案会话</li><li>同步音视频</li><li>光盘证据</li><li>编排命令</li><li>笔录</li><li>审计轨迹</li></ul><div class="layui-tab-content">
+      <div class="layui-tab" lay-filter="ID_case_detail_tabs"><ul class="layui-tab-title"><li class="layui-this">办案会话</li><li>同步音视频</li><li>光盘证据</li><li>编排命令</li><li>笔录</li><li>归档资料</li><li>审计轨迹</li></ul><div class="layui-tab-content">
         <div class="layui-tab-item layui-show"><table id="ID_case_detail_sessions"></table></div>
         <div class="layui-tab-item"><table id="ID_case_detail_media"></table></div>
         <div class="layui-tab-item"><table id="ID_case_detail_disc"></table></div>
         <div class="layui-tab-item"><table id="ID_case_detail_commands"></table></div>
         <div class="layui-tab-item"><table id="ID_case_detail_transcripts"></table></div>
+        <div class="layui-tab-item"><table id="ID_case_detail_archives"></table></div>
         <div class="layui-tab-item"><table id="ID_case_detail_audits"></table></div>
       </div></div></div>`;
     layer.open({ type:1, title:`案件办理工作台 - ${escapeHtml(caseRow.case_no)}`, area:['1080px','720px'], content, success:() => {
@@ -215,6 +218,9 @@ layui.use(['table', 'layer', 'form', 'jquery'], function () {
       ]] });
       table.render({ elem:'#ID_case_detail_media', data:detail.media || [], page:true, limit:8, cols:[[
         {field:'media_type', title:'类型', width:80, templet:r => r.media_type === 'video' ? '录像' : '录音'}, {field:'session_no', title:'所属会话', minWidth:170}, {field:'original_name', title:'材料文件', minWidth:170}, {field:'source_stream', title:'来源流', minWidth:180}, {field:'started_at', title:'开始时间', minWidth:170}, {field:'ended_at', title:'结束时间', minWidth:170}, {field:'integrity_status', title:'完整性', width:90}, {field:'sha256', title:'SHA-256', minWidth:180}
+      ]] });
+      table.render({ elem:'#ID_case_detail_archives', data:archives, page:true, limit:8, cols:[[
+        {field:'archive_type', title:'资料类型', width:100, templet:r => ({transcript:'笔录版本',video:'录像',audio:'录音',document:'附件'}[r.archive_type] || r.archive_type)}, {field:'original_name', title:'归档文件', minWidth:230}, {field:'session_no', title:'所属会话', minWidth:170}, {field:'created_at', title:'归档时间', minWidth:170}, {field:'sha256', title:'SHA-256', minWidth:200}, {title:'操作', width:150, templet:r => /\.(pdf|html?|mp4|webm|mov|ogg)$/i.test(r.original_name || '') ? `<button class="layui-btn layui-btn-xs layui-btn-primary case-archive-preview" data-id="${r.id}">预览</button> <a class="layui-btn layui-btn-xs" href="/api/archives/${r.id}/download" target="_blank">下载</a>` : `<a class="layui-btn layui-btn-xs" href="/api/archives/${r.id}/download" target="_blank">下载</a>`}
       ]] });
       const discRows = (detail.sessions || []).filter(session => detail.disc_evidence && detail.disc_evidence[String(session.id)]).map(session => Object.assign({session_no:session.session_no}, detail.disc_evidence[String(session.id)]));
       table.render({ elem:'#ID_case_detail_disc', data:discRows, cols:[[
@@ -234,6 +240,7 @@ layui.use(['table', 'layer', 'form', 'jquery'], function () {
       $('#ID_case_archive').on('click', () => layer.confirm(`归档“${escapeHtml(caseRow.case_no)}”后将锁定案件材料，是否继续？`, { title:'归档案件' }, index => request(`/api/cases/${caseRow.id}/archive`, 'POST', {}, res => { if (res.code === 0) { layer.close(index); layer.closeAll('page'); layer.msg('案件已归档'); loadWorkflow(); loadCases(); } else layer.msg(res.msg || '归档失败'); })));
       $('.case-session-command').on('click', function () { const button = $(this); request(`/api/case-sessions/${button.data('id')}/commands`, 'POST', {action:button.data('action')}, res => { if (res.code === 0) { layer.msg('命令已排队，正在等待设备执行'); setTimeout(() => openCaseDetail(caseRow), 500); } else layer.msg(res.msg || '命令创建失败'); }); });
       $('.case-transcript-preview').on('click', function () { const archiveId = $(this).data('archive-id'); layer.open({ type:2, title:'笔录版本预览', area:['92%','92%'], resize:true, maxmin:true, content:`/api/archives/${archiveId}/preview` }); });
+      $('.case-archive-preview').on('click', function () { const archiveId = $(this).data('id'); layer.open({ type:2, title:'归档资料预览', area:['92%','92%'], resize:true, maxmin:true, content:`/api/archives/${archiveId}/preview` }); });
       $('.case-transcript-editor').on('click', function () { const transcriptId = $(this).data('id'); const editor = $(this).data('editor'); const page = editor === 'onlyoffice' ? '/onlyoffice-editor.html' : '/transcript-editor.html'; layer.open({ type:2, title:editor === 'onlyoffice' ? '平台 DOCX 笔录' : '在线笔录', area:['96%','96%'], resize:true, maxmin:true, content:`${page}?transcript_id=${encodeURIComponent(transcriptId)}` }); });
     }});
   }
@@ -336,7 +343,7 @@ layui.use(['table', 'layer', 'form', 'jquery'], function () {
   form.on('submit(case-session-submit)', data => { if (!activeCase) return false; const payload = Object.assign({}, data.field); ['planned_start_at', 'planned_end_at'].forEach(field => { if (payload[field]) payload[field] = new Date(payload[field]).toISOString(); }); request(`/api/cases/${activeCase.id}/sessions`, 'POST', payload, res => { if (res.code === 0) { layer.closeAll(); layer.msg(payload.planned_start_at ? '办案会话与计划已创建' : '办案会话已创建'); openCaseDetail(activeCase); } else layer.msg(res.msg); }); return false; });
   form.on('submit(case-transcript-submit)', data => { const sessionId = data.field.session_id; const selected = $('#ID_case_transcript_template option:selected'); const payload = { title:data.field.title, transcript_type:selected.data('type') || 'other', template_key:data.field.template_key, editor_type:'tiptap' }; request(`/api/case-sessions/${sessionId}/transcripts`, 'POST', payload, res => { if (res.code === 0) { layer.closeAll(); layer.open({ type:2, title:'在线笔录', area:['96%','96%'], resize:true, maxmin:true, content:`/transcript-editor.html?transcript_id=${encodeURIComponent(res.data.id)}` }); } else layer.msg(res.msg); }); return false; });
   form.on('submit(case-transcript-template-submit)', data => { request('/api/transcript-templates', 'POST', data.field, res => { if (res.code === 0) { layer.closeAll(); layer.msg('笔录模板已导入，可在新建笔录时选择'); } else layer.msg(res.msg); }); return false; });
-  form.on('submit(case-transcript-docx-template-submit)', data => { const formNode = document.getElementById('ID_case_transcript_docx_form_el'); const file = formNode.querySelector('[name="file"]').files[0]; if (!file) { layer.msg('请选择 DOCX 模板文件'); return false; } const payload = new FormData(formNode); $.ajax({ url:'/api/transcript-templates/docx', type:'POST', data:payload, processData:false, contentType:false, success:res => { if (res.code === 0) { layer.closeAll(); layer.msg('DOCX 模板已导入，可在新建笔录时选择'); } else layer.msg(res.msg || 'DOCX 模板导入失败'); }, error:xhr => layer.msg((xhr.responseJSON && xhr.responseJSON.msg) || 'DOCX 模板导入失败') }); return false; });
+  form.on('submit(case-transcript-docx-template-submit)', data => { const formNode = document.getElementById('ID_case_transcript_docx_form_el'); const file = formNode.querySelector('[name="file"]').files[0]; if (!file) { layer.msg('请选择 DOCX 模板文件'); return false; } const payload = new FormData(formNode); const key=String(payload.get('template_key')||'').trim(); if (!/^[a-z][a-z0-9_-]{2,63}$/.test(key)) payload.set('template_key',`docx_${Date.now()}`); $.ajax({ url:'/api/transcript-templates/docx', type:'POST', data:payload, processData:false, contentType:false, success:res => { if (res.code === 0) { layer.closeAll(); layer.msg('DOCX 模板已导入，可在新建笔录时选择'); } else layer.msg(res.msg || 'DOCX 模板导入失败'); }, error:xhr => layer.msg((xhr.responseJSON && xhr.responseJSON.msg) || 'DOCX 模板导入失败') }); return false; });
   table.on('tool(ID_case_table)', obj => { if (obj.event === 'detail') openCaseDetail(obj.data); if (obj.event === 'assign') openAssignmentDialog(obj.data); if (obj.event === 'archive') layer.confirm(`归档“${escapeHtml(obj.data.case_no)}”后将锁定案件材料，是否继续？`, { title:'归档案件' }, index => request(`/api/cases/${obj.data.id}/archive`, 'POST', {}, res => { if (res.code === 0) { layer.close(index); layer.msg('案件已归档'); loadWorkflow(); loadCases(); } else layer.msg(res.msg || '归档失败'); })); });
   form.render('select');
   loadDevices(() => { loadWorkflow(); loadCases(); });

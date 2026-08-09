@@ -1931,6 +1931,12 @@ def list_archive_files(*, device_id: str | None = None) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def list_case_archive_files(*, case_id: int) -> list[dict[str, Any]]:
+    with get_db() as db:
+        rows = db.execute(f"{_archive_file_query()} WHERE f.case_id=? ORDER BY f.created_at ASC, f.id ASC", (case_id,)).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_archive_file(*, archive_id: int) -> dict[str, Any] | None:
     with get_db() as db:
         row = db.execute(f"{_archive_file_query()} WHERE f.id=?", (archive_id,)).fetchone()
