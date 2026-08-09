@@ -2563,14 +2563,16 @@ async def post_case(request: Request):
     case_no = str(body.get("case_no") or "").strip()
     name = str(body.get("name") or "").strip()
     case_type = str(body.get("case_type") or "criminal").strip()
+    case_reference = str(body.get("case_reference") or "").strip()
+    case_category = str(body.get("case_category") or "").strip()
     handling_unit = str(body.get("handling_unit") or "").strip()
     case_reason = str(body.get("case_reason") or "").strip()
     lead_investigator = str(body.get("lead_investigator") or "").strip()
     if not case_no:
         case_no = f"AJ-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}"
-    if not name or len(case_no) > 64 or len(name) > 160 or len(handling_unit) > 128 or len(case_reason) > 1000 or len(lead_investigator) > 80 or case_type not in CASE_TYPES or any(part in case_no for part in ("/", "\\", "..")):
+    if not name or len(case_no) > 64 or len(name) > 160 or len(case_reference) > 128 or len(case_category) > 32 or len(handling_unit) > 128 or len(case_reason) > 1000 or len(lead_investigator) > 80 or case_type not in CASE_TYPES or case_category not in {"", "talk", "inquiry", "interrogation", "identification", "other"} or any(part in case_no for part in ("/", "\\", "..")):
         return {"code": -1, "msg": "案件编号、名称、类型、承办单位或主办人员不合法"}
-    created = db_create_case(case_no=case_no, name=name, case_type=case_type, handling_unit=handling_unit, case_reason=case_reason, lead_investigator=lead_investigator, created_by=str((_request_user(request) or {}).get("username", "unknown")))
+    created = db_create_case(case_no=case_no, name=name, case_type=case_type, case_reference=case_reference, case_category=case_category, handling_unit=handling_unit, case_reason=case_reason, lead_investigator=lead_investigator, created_by=str((_request_user(request) or {}).get("username", "unknown")))
     return {"code": 0, "data": created} if created else {"code": -1, "msg": "案件编号已存在"}
 
 
@@ -2690,7 +2692,10 @@ async def post_case_session(case_id: int, request: Request):
     location = str(body.get("location") or "").strip()
     host_name = str(body.get("host_name") or "").strip()
     participant_summary = str(body.get("participant_summary") or "").strip()
-    if session_type not in CASE_SESSION_TYPES or recording_mode not in CASE_RECORDING_MODES or (body.get("planned_start_at") and not planned_start_at) or (body.get("planned_end_at") and not planned_end_at) or (planned_start_at and not planned_end_at) or (planned_end_at and (not planned_start_at or planned_end_at <= planned_start_at)) or len(session_no) > 96 or len(location) > 160 or len(host_name) > 80 or len(participant_summary) > 1000:
+    subject_name = str(body.get("subject_name") or "").strip()
+    interviewer_names = str(body.get("interviewer_names") or "").strip()
+    recorder_name = str(body.get("recorder_name") or "").strip()
+    if session_type not in CASE_SESSION_TYPES or recording_mode not in CASE_RECORDING_MODES or (body.get("planned_start_at") and not planned_start_at) or (body.get("planned_end_at") and not planned_end_at) or (planned_start_at and not planned_end_at) or (planned_end_at and (not planned_start_at or planned_end_at <= planned_start_at)) or len(session_no) > 96 or len(location) > 160 or len(host_name) > 80 or len(participant_summary) > 1000 or len(subject_name) > 160 or len(interviewer_names) > 500 or len(recorder_name) > 80:
         return {"code": -1, "msg": "会话信息不合法"}
     if not db_get_device(device_id=device_id) or not any(item["device_id"] == device_id and item["status"] in {"received", "handling"} for item in db_list_case_assignments(case_id=case_id)):
         return {"code": -1, "msg": "设备尚未接收案件或已完成，不能创建办案会话"}
@@ -2701,7 +2706,7 @@ async def post_case_session(case_id: int, request: Request):
         if not location:
             location = str(room.get("location") or room["name"])
     actor = str((_request_user(request) or {}).get("username", "unknown"))
-    created = db_create_case_session(case_id=case_id, device_id=device_id, room_id=room_id, session_no=session_no, session_type=session_type, recording_mode=recording_mode, planned_start_at=planned_start_at, planned_end_at=planned_end_at, location=location, host_name=host_name, participant_summary=participant_summary, created_by=actor)
+    created = db_create_case_session(case_id=case_id, device_id=device_id, room_id=room_id, session_no=session_no, session_type=session_type, recording_mode=recording_mode, planned_start_at=planned_start_at, planned_end_at=planned_end_at, location=location, host_name=host_name, participant_summary=participant_summary, subject_name=subject_name, interviewer_names=interviewer_names, recorder_name=recorder_name, created_by=actor)
     if created and planned_start_at:
         db_create_case_device_command(session_id=int(created["id"]), action="start", scheduled_at=planned_start_at, idempotency_key=f"session:{created['id']}:start", created_by=actor)
         db_create_case_device_command(session_id=int(created["id"]), action="stop", scheduled_at=str(planned_end_at), idempotency_key=f"session:{created['id']}:stop", created_by=actor)
@@ -3359,12 +3364,14 @@ async def post_archive_upload(
     title: str = Form(""),
     case_id: str = Form(""),
     session_id: str = Form(""),
+    sha256: str = Form(""),
     folder_id: str = Form(""),
     file: UploadFile = File(...),
 ):
     device_id = device_id.strip()
     current_user = _request_user(request)
-    device_upload = bool(access_key.strip()) and db_verify_device_key(device_id=device_id, access_key=access_key.strip())
+    device_key = access_key.strip() or request.headers.get("X-Device-Access-Key", "").strip()
+    device_upload = bool(device_key) and db_verify_device_key(device_id=device_id, access_key=device_key)
     if not _can_manage(request) and not device_upload:
         return {"code": 403, "msg": "需要管理员或操作员权限，或有效的设备接入密钥"}
     archive_type = archive_type.strip()
@@ -3410,6 +3417,10 @@ async def post_archive_upload(
         return {"code": -1, "msg": str(error) if isinstance(error, ValueError) else "归档文件写入失败"}
     finally:
         await file.close()
+    declared_hash = sha256.strip().lower()
+    if declared_hash and (not re.fullmatch(r"[0-9a-f]{64}", declared_hash) or declared_hash != digest.hexdigest()):
+        target.unlink(missing_ok=True)
+        return {"code": -1, "msg": "归档文件 SHA-256 校验失败"}
     saved = db_create_archive_file(
         device_id=device_id, case_id=parsed_case_id, session_id=parsed_session_id, folder_id=parsed_folder_id, archive_type=archive_type,
         status=status if archive_type == "transcript" else "not_started",

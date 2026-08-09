@@ -529,6 +529,8 @@ def init_db() -> None:
                 case_no TEXT NOT NULL UNIQUE,
                 name TEXT NOT NULL,
                 case_type TEXT NOT NULL DEFAULT 'criminal',
+                case_reference TEXT NOT NULL DEFAULT '',
+                case_category TEXT NOT NULL DEFAULT '',
                 handling_unit TEXT NOT NULL DEFAULT '',
                 case_reason TEXT NOT NULL DEFAULT '',
                 lead_investigator TEXT NOT NULL DEFAULT '',
@@ -539,6 +541,11 @@ def init_db() -> None:
             )
             """
         )
+        case_columns = {row[1] for row in db.execute("PRAGMA table_info(case_info)").fetchall()}
+        if "case_reference" not in case_columns:
+            db.execute("ALTER TABLE case_info ADD COLUMN case_reference TEXT NOT NULL DEFAULT ''")
+        if "case_category" not in case_columns:
+            db.execute("ALTER TABLE case_info ADD COLUMN case_category TEXT NOT NULL DEFAULT ''")
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS case_device_assignment (
@@ -572,6 +579,9 @@ def init_db() -> None:
                 location TEXT NOT NULL DEFAULT '',
                 host_name TEXT NOT NULL DEFAULT '',
                 participant_summary TEXT NOT NULL DEFAULT '',
+                subject_name TEXT NOT NULL DEFAULT '',
+                interviewer_names TEXT NOT NULL DEFAULT '',
+                recorder_name TEXT NOT NULL DEFAULT '',
                 started_at TEXT,
                 ended_at TEXT,
                 created_by TEXT NOT NULL,
@@ -593,6 +603,12 @@ def init_db() -> None:
             db.execute("ALTER TABLE case_session ADD COLUMN planned_start_at TEXT")
         if "planned_end_at" not in session_columns:
             db.execute("ALTER TABLE case_session ADD COLUMN planned_end_at TEXT")
+        if "subject_name" not in session_columns:
+            db.execute("ALTER TABLE case_session ADD COLUMN subject_name TEXT NOT NULL DEFAULT ''")
+        if "interviewer_names" not in session_columns:
+            db.execute("ALTER TABLE case_session ADD COLUMN interviewer_names TEXT NOT NULL DEFAULT ''")
+        if "recorder_name" not in session_columns:
+            db.execute("ALTER TABLE case_session ADD COLUMN recorder_name TEXT NOT NULL DEFAULT ''")
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS remote_hearing_task (
@@ -1984,18 +2000,18 @@ def _case_query() -> str:
               LEFT JOIN device d ON d.device_id=a.device_id"""
 
 
-def create_case(*, case_no: str, name: str, case_type: str, handling_unit: str, case_reason: str = "", lead_investigator: str = "", created_by: str) -> dict[str, Any] | None:
+def create_case(*, case_no: str, name: str, case_type: str, handling_unit: str, case_reference: str = "", case_category: str = "", case_reason: str = "", lead_investigator: str = "", created_by: str) -> dict[str, Any] | None:
     now = _utc_now_iso()
     with get_db() as db:
         try:
             cur = db.execute(
-                     """INSERT INTO case_info (case_no, name, case_type, handling_unit, case_reason, lead_investigator, status, created_by, created_at, updated_at)
-                         VALUES (?, ?, ?, ?, ?, ?, 'created', ?, ?, ?)""",
-                     (case_no, name, case_type, handling_unit, case_reason, lead_investigator, created_by, now, now),
+                     """INSERT INTO case_info (case_no, name, case_type, case_reference, case_category, handling_unit, case_reason, lead_investigator, status, created_by, created_at, updated_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'created', ?, ?, ?)""",
+                     (case_no, name, case_type, case_reference, case_category, handling_unit, case_reason, lead_investigator, created_by, now, now),
             )
         except sqlite3.IntegrityError:
             return None
-        _add_case_audit(db=db, case_id=int(cur.lastrowid), action="case.created", actor=created_by, detail={"case_no": case_no, "case_type": case_type, "lead_investigator": lead_investigator})
+        _add_case_audit(db=db, case_id=int(cur.lastrowid), action="case.created", actor=created_by, detail={"case_no": case_no, "case_type": case_type, "case_reference": case_reference, "case_category": case_category, "lead_investigator": lead_investigator})
     return get_case(case_id=int(cur.lastrowid))
 
 
@@ -2137,7 +2153,7 @@ def list_case_sessions(*, case_id: int | None = None, device_id: str | None = No
     return [dict(row) for row in rows]
 
 
-def create_case_session(*, case_id: int, device_id: str, room_id: int | None, session_no: str, session_type: str, recording_mode: str, planned_start_at: str | None, planned_end_at: str | None, location: str, host_name: str, participant_summary: str, created_by: str) -> dict[str, Any] | None:
+def create_case_session(*, case_id: int, device_id: str, room_id: int | None, session_no: str, session_type: str, recording_mode: str, planned_start_at: str | None, planned_end_at: str | None, location: str, host_name: str, participant_summary: str, subject_name: str = "", interviewer_names: str = "", recorder_name: str = "", created_by: str) -> dict[str, Any] | None:
     now = _utc_now_iso()
     with get_db() as db:
         assignment = db.execute("SELECT status FROM case_device_assignment WHERE case_id=? AND device_id=?", (case_id, device_id)).fetchone()
@@ -2145,13 +2161,13 @@ def create_case_session(*, case_id: int, device_id: str, room_id: int | None, se
             return None
         try:
             cur = db.execute(
-                     """INSERT INTO case_session (case_id, device_id, room_id, session_no, session_type, recording_mode, planned_start_at, planned_end_at, location, host_name, participant_summary, created_by, created_at, updated_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                     (case_id, device_id, room_id, session_no, session_type, recording_mode, planned_start_at, planned_end_at, location, host_name, participant_summary, created_by, now, now),
+                     """INSERT INTO case_session (case_id, device_id, room_id, session_no, session_type, recording_mode, planned_start_at, planned_end_at, location, host_name, participant_summary, subject_name, interviewer_names, recorder_name, created_by, created_at, updated_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     (case_id, device_id, room_id, session_no, session_type, recording_mode, planned_start_at, planned_end_at, location, host_name, participant_summary, subject_name, interviewer_names, recorder_name, created_by, now, now),
             )
         except sqlite3.IntegrityError:
             return None
-        _add_case_audit(db=db, case_id=case_id, session_id=int(cur.lastrowid), action="session.created", actor=created_by, detail={"device_id": device_id, "room_id": room_id, "session_no": session_no, "session_type": session_type, "recording_mode": recording_mode, "planned_start_at": planned_start_at, "planned_end_at": planned_end_at})
+        _add_case_audit(db=db, case_id=case_id, session_id=int(cur.lastrowid), action="session.created", actor=created_by, detail={"device_id": device_id, "room_id": room_id, "session_no": session_no, "session_type": session_type, "recording_mode": recording_mode, "planned_start_at": planned_start_at, "planned_end_at": planned_end_at, "subject_name": subject_name, "interviewer_names": interviewer_names, "recorder_name": recorder_name})
     return get_case_session(session_id=int(cur.lastrowid))
 
 
