@@ -2407,7 +2407,7 @@ def complete_case_assignment_if_ready(*, session_id: int, actor: str) -> dict[st
 
 
 def _transcript_query() -> str:
-    return """SELECT t.*, s.case_id, s.session_no, s.device_id, c.case_no, c.name AS case_name,
+    return """SELECT t.*, s.case_id, s.session_no, s.device_id, s.location, s.host_name, s.participant_summary, s.started_at, s.ended_at, c.case_no, c.name AS case_name, c.handling_unit, c.case_reason,
               v.archive_id AS current_archive_id, f.original_name AS current_file_name, f.sha256 AS current_file_hash
               FROM case_transcript t JOIN case_session s ON s.id=t.session_id
               JOIN case_info c ON c.id=s.case_id
@@ -2639,6 +2639,8 @@ def get_case_completion_report(*, case_id: int) -> dict[str, Any] | None:
         missing_video_evidence = [dict(row) for row in db.execute("""SELECT s.id, s.session_no FROM case_session s
                                                                       WHERE s.case_id=? AND s.status='ended' AND NOT EXISTS (
                                                                           SELECT 1 FROM case_media_asset m WHERE m.session_id=s.id AND m.media_type='video' AND m.archive_id IS NOT NULL
+                                                                      ) AND NOT EXISTS (
+                                                                          SELECT 1 FROM case_recording_binding r WHERE r.session_id=s.id AND r.integrity_status='verified'
                                                                       )""", (case_id,)).fetchall()]
         unverified_discs = [dict(row) for row in db.execute("""SELECT s.id, s.session_no FROM case_session s LEFT JOIN case_disc_evidence e ON e.session_id=s.id
                                                               WHERE s.case_id=? AND s.recording_mode='sync_burn' AND s.status='ended' AND COALESCE(e.status, '')!='verified'""", (case_id,)).fetchall()]
@@ -2689,14 +2691,18 @@ def get_case_workflow_dashboard() -> dict[str, Any]:
                                                        WHERE s.status='planned' AND s.planned_start_at IS NOT NULL
                                                        ORDER BY s.planned_start_at LIMIT 12""").fetchall()]
         rooms = [dict(row) for row in db.execute("""SELECT r.id, r.name, r.enabled,
-                                                   SUM(CASE WHEN s.status='active' THEN 1 ELSE 0 END) AS active_session_count,
-                                                   SUM(CASE WHEN s.status='planned' AND s.planned_start_at<=? AND s.planned_end_at>? THEN 1 ELSE 0 END) AS scheduled_now_count
-                                                   FROM interview_room r LEFT JOIN case_session s ON s.room_id=r.id
-                                                   GROUP BY r.id ORDER BY r.name""", (now, now)).fetchall()]
+                               GROUP_CONCAT(DISTINCT rd.device_id) AS device_ids,
+                                                   (SELECT COUNT(*) FROM case_session s WHERE s.room_id=r.id AND s.status='active') AS active_session_count,
+                                                   (SELECT COUNT(*) FROM case_session s WHERE s.room_id=r.id AND s.status='planned' AND s.planned_start_at<=? AND s.planned_end_at>?) AS scheduled_now_count
+                               FROM interview_room r
+                               LEFT JOIN interview_room_device rd ON rd.room_id=r.id
+                               GROUP BY r.id ORDER BY r.name""", (now, now)).fetchall()]
         evidence_case_ids = {int(row["case_id"]) for row in db.execute("""SELECT DISTINCT s.case_id FROM case_session s
                                             JOIN case_info c ON c.id=s.case_id
                                             WHERE s.status IN ('finalizing', 'ended')
                                             AND c.status NOT IN ('closed', 'archived')""").fetchall()}
+    for room in rooms:
+        room["devices"] = [{"device_id": device_id} for device_id in str(room.pop("device_ids") or "").split(",") if device_id]
     stages = {"intake": 0, "ready": 0, "scheduled": 0, "handling": 0, "evidence": 0, "closed": 0, "archived": 0}
     for case in cases:
         if case["status"] == "created":

@@ -6,17 +6,30 @@
   <title>在线笔录</title>
   <link rel="stylesheet" href="assets/layui/css/layui.css">
   <style>
-    :root { --ink:#17212b; --line:#d9e1e8; --paper:#fff; --canvas:#edf2f5; --accent:#1677b9; }
+    :root { --ink:#17212b; --muted:#657381; --line:#d9e1e8; --paper:#fff; --canvas:#edf2f5; --accent:#1677b9; --good:#16876e; --warn:#a66800; --danger:#c83d47; }
     * { box-sizing:border-box; }
     body { margin:0; background:var(--canvas); color:var(--ink); font:14px/1.5 "Microsoft YaHei",sans-serif; }
-    .editor-head { height:56px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:0 18px; background:#fff; border-bottom:1px solid var(--line); }
+    .editor-head { min-height:62px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px 18px; background:#fff; border-bottom:1px solid var(--line); }
     .editor-title { min-width:0; font-weight:700; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .editor-meta { color:#657381; font-size:12px; }
     .editor-actions { display:flex; align-items:center; gap:8px; }
     .toolbar { display:flex; flex-wrap:wrap; gap:6px; padding:9px 18px; background:#f8fafb; border-bottom:1px solid var(--line); }
     .toolbar button { min-width:32px; height:30px; border:1px solid #cbd6de; border-radius:3px; background:#fff; color:#253746; cursor:pointer; font-weight:600; }
     .toolbar button:hover { border-color:var(--accent); color:var(--accent); }
-    .editor-shell { max-width:900px; min-height:calc(100vh - 108px); margin:18px auto; padding:52px 70px; background:var(--paper); box-shadow:0 1px 8px rgba(23,33,43,.12); }
+    .editor-layout { max-width:1440px; display:grid; grid-template-columns:280px minmax(0,900px) 270px; gap:16px; margin:18px auto; padding:0 18px; align-items:start; }
+    .side-panel { background:#fff; border:1px solid var(--line); box-shadow:0 1px 5px rgba(23,33,43,.06); }
+    .side-title { padding:12px 14px; border-bottom:1px solid var(--line); font-weight:700; font-size:14px; }
+    .side-body { padding:12px 14px; }
+    .case-fact { padding:9px 0; border-bottom:1px solid #edf1f4; }
+    .case-fact:last-child { border-bottom:0; }
+    .case-fact span { display:block; color:var(--muted); font-size:12px; }
+    .case-fact b { display:block; margin-top:3px; font-size:13px; font-weight:600; word-break:break-word; }
+    .field-list { display:grid; gap:8px; max-height:430px; overflow:auto; }
+    .field-row label { display:block; margin-bottom:3px; color:var(--muted); font-size:12px; }
+    .field-row input,.qa-input { width:100%; height:32px; border:1px solid #cbd6de; padding:5px 8px; color:var(--ink); font:13px "Microsoft YaHei",sans-serif; }
+    .field-row input:focus,.qa-input:focus { border-color:var(--accent); outline:none; }
+    .panel-action { width:100%; margin-top:10px; }
+    .editor-shell { min-width:0; min-height:calc(100vh - 126px); padding:52px 70px; background:var(--paper); box-shadow:0 1px 8px rgba(23,33,43,.12); }
     .transcript-prosemirror { min-height:640px; outline:none; font-size:16px; line-height:1.85; }
     .transcript-prosemirror h1 { text-align:center; font-size:24px; margin:0 0 30px; }
     .transcript-prosemirror h2 { font-size:20px; }
@@ -26,8 +39,17 @@
     .transcript-prosemirror .qa-line { display:flex; gap:8px; min-height:34px; margin:0 0 12px; }
     .transcript-prosemirror .qa-label { flex:0 0 2.5em; font-weight:700; }
     .transcript-prosemirror .qa-answer { flex:1; min-height:30px; border-bottom:1px solid #71808c; }
-    .state { color:#657381; white-space:nowrap; }
-    @media print { .editor-head,.toolbar { display:none!important; } body { background:#fff; } .editor-shell { box-shadow:none; margin:0; max-width:none; min-height:0; padding:0; } }
+    .transcript-prosemirror .inline-field { display:inline-block; min-width:8em; margin:0 3px; padding:0 2px; border-bottom:1px solid #52616d; vertical-align:baseline; }
+    .transcript-prosemirror .inline-field:empty::after { content:'\00a0'; }
+    .state { color:var(--muted); white-space:nowrap; }
+    .quality-list { margin:0; padding-left:18px; color:var(--warn); font-size:12px; line-height:1.7; }
+    .quality-good { color:var(--good); font-size:12px; }
+    .qa-section { display:grid; gap:8px; }
+    .qa-label { color:var(--muted); font-size:12px; }
+    .qa-add { width:100%; }
+    .editor-actions .layui-btn { margin:0; }
+    @media(max-width:1120px) { .editor-layout { grid-template-columns:minmax(0,1fr); max-width:920px; } .side-panel { order:2; } .editor-shell { order:1; } .editor-layout > .side-panel:last-child { order:3; } }
+    @media print { .editor-head,.toolbar,.side-panel { display:none!important; } body { background:#fff; } .editor-layout { display:block; margin:0; padding:0; } .editor-shell { box-shadow:none; margin:0; max-width:none; min-height:0; padding:0; } }
   </style>
 </head>
 <body>
@@ -36,26 +58,50 @@
     <div class="editor-actions"><span class="state" id="saveState">加载中</span><button class="layui-btn layui-btn-sm layui-btn-primary" id="printButton">打印</button><button class="layui-btn layui-btn-sm layui-btn-primary" id="versionButton">生成版本</button><button class="layui-btn layui-btn-sm" id="finalizeButton">定稿</button></div>
   </header>
   <div class="toolbar" id="toolbar">
-    <button type="button" data-command="bold" title="加粗">B</button><button type="button" data-command="italic" title="斜体"><i>I</i></button><button type="button" data-command="strike" title="删除线">S</button><button type="button" data-command="heading" title="标题">H</button><button type="button" data-command="bulletList" title="无序列表">&#8226;</button><button type="button" data-command="orderedList" title="有序列表">1.</button><button type="button" data-command="blockquote" title="引用">&#8220;</button><button type="button" data-command="undo" title="撤销">&#8630;</button><button type="button" data-command="redo" title="重做">&#8631;</button>
+    <button type="button" data-command="bold" title="加粗">B</button><button type="button" data-command="italic" title="斜体"><i>I</i></button><button type="button" data-command="strike" title="删除线">S</button><button type="button" data-command="heading" title="二级标题">H</button><button type="button" data-command="bulletList" title="无序列表">&#8226;</button><button type="button" data-command="orderedList" title="有序列表">1.</button><button type="button" data-command="blockquote" title="引用">&#8220;</button><button type="button" data-command="undo" title="撤销">&#8630;</button><button type="button" data-command="redo" title="重做">&#8631;</button>
   </div>
-  <main class="editor-shell"><div id="editor"></div></main>
+  <div class="editor-layout">
+    <aside class="side-panel"><div class="side-title">办案资料</div><div class="side-body" id="caseFacts"></div></aside>
+    <main class="editor-shell"><div id="editor"></div></main>
+    <aside class="side-panel">
+      <div class="side-title">笔录辅助</div>
+      <div class="side-body"><div class="qa-section"><label class="qa-label" for="questionInput">问</label><textarea id="questionInput" class="qa-input" rows="2" placeholder="输入提问内容"></textarea><label class="qa-label" for="answerInput">答</label><textarea id="answerInput" class="qa-input" rows="3" placeholder="输入回答内容"></textarea><button type="button" class="layui-btn layui-btn-sm qa-add" id="addQAPair">插入问答</button></div></div>
+      <div class="side-title">待填写字段</div><div class="side-body"><div class="field-list" id="fieldList"></div><button type="button" class="layui-btn layui-btn-sm layui-btn-primary panel-action" id="applyFields">写入笔录</button></div>
+      <div class="side-title">定稿检查</div><div class="side-body" id="qualityPanel"></div>
+    </aside>
+  </div>
   <script src="assets/tiptap-editor.bundle.js"></script>
   <script>
     const transcriptId = new URLSearchParams(location.search).get('transcript_id');
     const editorNode = document.getElementById('editor');
     const saveState = document.getElementById('saveState');
-    let editor, transcript, timer, saving = false;
-    async function request(url, options) { const response = await fetch(url, Object.assign({credentials:'same-origin'}, options)); const body = await response.json(); if (!response.ok || body.code !== 0) throw new Error(body.msg || '请求失败'); return body.data; }
+    let editor, transcript, timer, saving = false, fieldNames = [];
+    async function request(url, options) { const response = await fetch(url, Object.assign({credentials:'same-origin'}, options)); const body = await response.json(); if (!response.ok || body.code !== 0) { const error = new Error(body.msg || '请求失败'); error.data = body.data; throw error; } return body.data; }
+    function escapeHtml(value) { return String(value || '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char])); }
     function setState(text) { saveState.textContent = text; }
     async function saveDraft() { if (!editor || !transcript || transcript.status === 'finalized' || saving) return; saving = true; setState('保存中'); try { transcript = await request(`/api/transcripts/${transcriptId}/content`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content:editor.getJSON()})}); setState(`已保存 ${new Date().toLocaleTimeString()}`); } catch (error) { setState(error.message || '保存失败'); } finally { saving = false; } }
-    function queueSave() { clearTimeout(timer); setState('未保存'); timer = setTimeout(saveDraft, 1200); }
+    function queueSave() { clearTimeout(timer); setState('未保存'); renderQuality(); timer = setTimeout(saveDraft, 1200); }
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { clearTimeout(timer); saveDraft(); } });
     function invoke(command) { const chain = editor.chain().focus(); const result = command === 'heading' ? chain.toggleHeading({level:2}) : chain[`toggle${command[0].toUpperCase()}${command.slice(1)}`] ? chain[`toggle${command[0].toUpperCase()}${command.slice(1)}`]() : chain[command](); result.run(); }
+    function documentText(node) { if (!node || typeof node !== 'object') return ''; return node.type === 'text' ? (node.text || '') : (node.content || []).map(documentText).join(''); }
+    function convertPlaceholders(node) { if (Array.isArray(node)) return node.flatMap(convertPlaceholders); if (!node || typeof node !== 'object') return node; if (node.type === 'text' && typeof node.text === 'string') { const parts = node.text.split(/(\{\{[^{}\n]{1,80}\}\})/g); return parts.filter(Boolean).map(part => { const match = part.match(/^\{\{([^{}\n]{1,80})\}\}$/); return match ? {type:'inputField',attrs:{name:match[1].trim()}} : Object.assign({}, node, {text:part}); }); } const next = Object.assign({}, node); if (next.content) next.content = next.content.flatMap(convertPlaceholders); return next; }
+    function escapeRegExp(value) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    function collectFieldNames() { const detected = Array.from(new Set((JSON.stringify(editor.getJSON()).match(/\{\{[^{}\n]{1,80}\}\}/g) || []).map(value => value.slice(2, -2).trim()))); const standard = ['姓名','性别','年龄','身份证号','办案机关','办案人员','地点','开始时间','结束时间','记录人签名','当事人签名']; fieldNames = Array.from(new Set(detected.concat(standard))); }
+    function fieldDefaults() { const started = transcript.started_at ? new Date(transcript.started_at) : null; const ended = transcript.ended_at ? new Date(transcript.ended_at) : null; return { '办案机关': transcript.handling_unit || '', '办案人员': transcript.host_name || '', '地点': transcript.location || '', '开始时间': started && !Number.isNaN(started) ? started.toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit', hour12:false}) : '', '结束时间': ended && !Number.isNaN(ended) ? ended.toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit', hour12:false}) : '' }; }
+    function renderFields() { if (!editor || transcript.status === 'finalized') return; collectFieldNames(); const defaults = fieldDefaults(); const current = {}; document.querySelectorAll('[data-field-name]').forEach(input => { current[input.dataset.fieldName] = input.value; }); document.getElementById('fieldList').innerHTML = fieldNames.map(name => `<div class="field-row"><label>${escapeHtml(name)}</label><input data-field-name="${escapeHtml(name)}" value="${escapeHtml(current[name] || defaults[name] || '')}" placeholder="填写${escapeHtml(name)}"></div>`).join(''); }
+    function replaceTextFields(node, values) { if (Array.isArray(node)) return node.map(item => replaceTextFields(item, values)); if (!node || typeof node !== 'object') return node; const next = Object.assign({}, node); if (next.type === 'text' && typeof next.text === 'string') { Object.keys(values).forEach(name => { if (values[name]) next.text = next.text.replace(new RegExp(`\\{\\{${escapeRegExp(name)}\\}\\}`, 'g'), values[name]); }); } if (next.content) next.content = replaceTextFields(next.content, values); return next; }
+    function applyFields() { if (!editor || transcript.status === 'finalized') return; const values = {}; document.querySelectorAll('[data-field-name]').forEach(input => { values[input.dataset.fieldName] = input.value.trim(); }); editor.commands.setContent(replaceTextFields(editor.getJSON(), values)); renderFields(); queueSave(); }
+    function addQAPair() { const question = document.getElementById('questionInput').value.trim(); const answer = document.getElementById('answerInput').value.trim(); if (!question && !answer) { setState('请填写问题或回答'); return; } editor.chain().focus().insertContent([{type:'qaLine',attrs:{kind:'question'},content:question ? [{type:'text',text:question}] : []},{type:'qaLine',attrs:{kind:'answer'},content:answer ? [{type:'text',text:answer}] : []}]).run(); document.getElementById('questionInput').value=''; document.getElementById('answerInput').value=''; queueSave(); }
+    function localQualityIssues() { const documentJson = editor.getJSON(); const text = documentText(documentJson).replace(/\s/g, ''); const placeholders = Array.from(new Set((JSON.stringify(documentJson).match(/\{\{[^{}\n]{1,80}\}\}/g) || []))); const issues = []; if (placeholders.length) issues.push(`仍有未填写字段：${placeholders.slice(0, 4).join('、')}${placeholders.length > 4 ? '等' : ''}`); if (text.length < 30) issues.push('笔录正文内容不足，不能定稿'); if (['interrogation','inquiry'].includes(transcript.transcript_type)) { let questionCount = 0, answerCount = 0; (documentJson.content || []).forEach(item => { const value = documentText(item).trim(); if (!value) return; if (item.type === 'qaLine') { if (item.attrs?.kind === 'answer') answerCount += 1; else questionCount += 1; } else if (item.type === 'paragraph' && value.startsWith('问：')) questionCount += 1; else if (item.type === 'paragraph' && value.startsWith('答：')) answerCount += 1; }); if (!questionCount || !answerCount) issues.push('至少需要一组已填写的问答'); else if (questionCount !== answerCount) issues.push('问答条目数量不一致'); } return issues; }
+    function renderQuality(issues) { const currentIssues = issues || (editor ? localQualityIssues() : []); document.getElementById('qualityPanel').innerHTML = currentIssues.length ? `<ul class="quality-list">${currentIssues.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : '<div class="quality-good">定稿检查通过</div>'; }
+    function renderFacts() { const facts = [['案件编号', transcript.case_no], ['案件名称', transcript.case_name], ['承办单位', transcript.handling_unit || '待填写'], ['办案会话', transcript.session_no], ['谈话地点', transcript.location || '待填写'], ['谈话主持', transcript.host_name || '待填写'], ['参与人员', transcript.participant_summary || '待填写'], ['当前版本', `V${transcript.current_version || 0}`], ['状态', transcript.status === 'finalized' ? '已定稿' : '草稿编辑中']]; document.getElementById('caseFacts').innerHTML = facts.map(item => `<div class="case-fact"><span>${escapeHtml(item[0])}</span><b>${escapeHtml(item[1] || '-')}</b></div>`).join(''); }
     document.getElementById('toolbar').addEventListener('click', event => { const button = event.target.closest('button[data-command]'); if (button && editor && transcript.status !== 'finalized') invoke(button.dataset.command); });
     document.getElementById('printButton').onclick = () => window.print();
+    document.getElementById('applyFields').onclick = applyFields;
+    document.getElementById('addQAPair').onclick = addQAPair;
     document.getElementById('versionButton').onclick = async () => { await saveDraft(); try { const data = await request(`/api/transcripts/${transcriptId}/publish`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note:'在线笔录版本'})}); transcript=data; setState(`已生成版本 V${data.current_version}`); } catch(error) { setState(error.message); } };
-    document.getElementById('finalizeButton').onclick = async () => { if (!confirm('定稿后不可再编辑，确定继续？')) return; await saveDraft(); try { const data = await request(`/api/transcripts/${transcriptId}/publish`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note:'在线笔录定稿',finalize:true})}); transcript=data; editor.setEditable(false); document.getElementById('toolbar').style.display='none'; document.getElementById('versionButton').style.display='none'; document.getElementById('finalizeButton').style.display='none'; setState('已定稿'); } catch(error) { setState(error.message); } };
-    (async () => { try { const data = await request(`/api/transcripts/${transcriptId}/editor`); transcript=data.transcript; document.getElementById('editorTitle').textContent=transcript.title; document.getElementById('editorMeta').textContent=`${transcript.case_no} / ${transcript.session_no} / ${transcript.status === 'finalized' ? '已定稿' : '编辑中'}`; editor=window.StreamUiTiptap(editorNode,data.content,transcript.status !== 'finalized',queueSave); if (transcript.status === 'finalized') { document.getElementById('toolbar').style.display='none'; document.getElementById('versionButton').style.display='none'; document.getElementById('finalizeButton').style.display='none'; } setState(transcript.last_saved_at ? `已保存 ${transcript.last_saved_at}` : '可编辑'); } catch(error) { setState(error.message || '加载失败'); } })();
+    document.getElementById('finalizeButton').onclick = async () => { const issues = localQualityIssues(); if (issues.length) { renderQuality(issues); setState('请先处理定稿检查项'); return; } if (!confirm('定稿后不可再编辑，确定继续？')) return; await saveDraft(); try { const data = await request(`/api/transcripts/${transcriptId}/publish`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note:'在线笔录定稿',finalize:true})}); transcript=data; editor.setEditable(false); document.getElementById('toolbar').style.display='none'; document.getElementById('versionButton').style.display='none'; document.getElementById('finalizeButton').style.display='none'; document.querySelectorAll('.side-panel').forEach(panel => panel.style.display='none'); setState('已定稿'); } catch(error) { renderQuality(error.data && error.data.issues); setState(error.message); } };
+    (async () => { try { const data = await request(`/api/transcripts/${transcriptId}/editor`); transcript=data.transcript; document.getElementById('editorTitle').textContent=transcript.title; document.getElementById('editorMeta').textContent=`${transcript.case_no} / ${transcript.session_no} / ${transcript.status === 'finalized' ? '已定稿' : '编辑中'}`; editor=window.StreamUiTiptap(editorNode,transcript.status === 'finalized' ? data.content : convertPlaceholders(data.content),transcript.status !== 'finalized',queueSave); renderFacts(); renderFields(); renderQuality(data.quality_issues); if (transcript.status === 'finalized') { document.getElementById('toolbar').style.display='none'; document.getElementById('versionButton').style.display='none'; document.getElementById('finalizeButton').style.display='none'; document.querySelectorAll('.side-panel').forEach(panel => panel.style.display='none'); } setState(transcript.last_saved_at ? `已保存 ${transcript.last_saved_at}` : '可编辑'); } catch(error) { setState(error.message || '加载失败'); } })();
   </script>
 </body>
 </html>

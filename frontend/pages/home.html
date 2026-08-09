@@ -74,6 +74,7 @@
     .room-card.offline { border-color:rgba(255,95,114,.68); background:rgba(120,32,48,.45); }
     .stream-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:12px; }
     .stream-tile { position:relative; min-height:86px; display:flex; align-items:center; justify-content:center; overflow:hidden; background:linear-gradient(145deg,#10263d,#070f1c); border:1px solid rgba(255,179,77,.58); }
+    .stream-tile video { width:100%; height:100%; min-height:86px; object-fit:cover; background:#070f1c; }
     .stream-tile:before { content:"实时视频"; color:rgba(193,221,241,.6); font-size:12px; }
     .stream-tile span { position:absolute; left:6px; right:6px; bottom:5px; padding:3px 4px; overflow:hidden; color:#eaf8ff; background:rgba(1,10,23,.68); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
     .stream-tile.empty { border-color:rgba(100,135,171,.45); }
@@ -139,8 +140,10 @@
         if (!visibleRooms.length) { $("#room-list").html('<div class="empty-tip">暂无已配置谈话室</div>'); return; }
         $("#room-list").html(visibleRooms.map(function (room) {
           const roomDevices = room.devices || room.device_ids || [];
-          const first = Array.isArray(roomDevices) ? roomDevices[0] : null;
-          const boundDevice = deviceMap.get(typeof first === "string" ? first : first && first.device_id);
+          const boundDevices = (Array.isArray(roomDevices) ? roomDevices : []).map(function (item) {
+            return deviceMap.get(typeof item === "string" ? item : item && item.device_id);
+          }).filter(Boolean);
+          const boundDevice = boundDevices.find(function (item) { return item.status === "online"; }) || boundDevices[0];
           const active = Number(room.active_session_count || room.scheduled_now_count || 0) > 0;
           const status = active ? "busy" : boundDevice ? (boundDevice.status === "online" ? "online" : "offline") : "busy";
           const label = active ? "正在办案" : boundDevice ? (boundDevice.status === "online" ? "设备在线" : "设备离线") : "未绑定设备";
@@ -148,9 +151,15 @@
         }).join(""));
       }
       function renderStreams(streams) {
-        const tiles = streams.slice(0,4).map(function (stream) { return '<div class="stream-tile"><span>' + escapeHtml((stream.app || "live") + "/" + (stream.stream || "未知流")) + '</span></div>'; });
+        const tiles = streams.slice(0,4).map(function (stream) {
+          const app = String(stream.app || "live");
+          const streamName = String(stream.stream || "");
+          const streamUrl = window.location.protocol + "//" + window.location.hostname + ":8080/" + encodeURIComponent(app) + "/" + encodeURIComponent(streamName) + ".live.mp4";
+          return '<div class="stream-tile"><video autoplay muted playsinline preload="none" src="' + escapeHtml(streamUrl) + '"></video><span>' + escapeHtml(app + "/" + (streamName || "未知流")) + '</span></div>';
+        });
         while (tiles.length < 4) tiles.push('<div class="stream-tile empty"></div>');
         $("#stream-grid").html(tiles.join(""));
+        $("#stream-grid video").each(function () { this.play().catch(function () {}); });
       }
       function renderAlarms(alarms) {
         const rows = alarms.slice(0,4);

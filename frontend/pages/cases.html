@@ -101,6 +101,14 @@
     <div class="layui-form-item"><label class="layui-form-label">模板 JSON</label><div class="layui-input-block"><textarea class="layui-textarea" name="content" style="height:220px;font-family:Consolas,monospace" required></textarea><div class="layui-form-mid layui-word-aux">系统自动填入：{{case_no}}、{{case_name}}、{{session_no}}、{{date}}。人员字段可使用：{{姓名}}、{{年龄}}、{{身份证号}}。</div></div></div>
     <div class="layui-form-item"><div class="layui-input-block"><button type="button" class="layui-btn layui-btn-primary" id="ID_fill_transcript_template_example">填入示例</button><button class="layui-btn" lay-submit lay-filter="case-transcript-template-submit">导入模板</button></div></div>
   </form>
+  <hr>
+  <form class="layui-form" style="padding:0 18px 18px" id="ID_case_transcript_docx_form_el">
+    <div class="layui-form-item"><label class="layui-form-label">DOCX 文件</label><div class="layui-input-block"><input class="layui-input" name="file" type="file" accept=".docx" required></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">模板标识</label><div class="layui-input-block"><input class="layui-input" name="template_key" required placeholder="例如：lm700_interrogation_docx"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">模板名称</label><div class="layui-input-block"><input class="layui-input" name="name" placeholder="默认使用 DOCX 文件名"></div></div>
+    <div class="layui-form-item"><label class="layui-form-label">笔录类型</label><div class="layui-input-block"><select name="transcript_type"><option value="interrogation">讯问</option><option value="inquiry">询问</option><option value="identification">辨认</option><option value="other">其他</option></select><div class="layui-form-mid layui-word-aux">自动转换段落、表格、问答和身份证等空白字段。</div></div></div>
+    <div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn layui-btn-normal" lay-submit lay-filter="case-transcript-docx-template-submit">导入 DOCX 模板</button></div></div>
+  </form>
 </script>
 
 <script>
@@ -270,7 +278,10 @@ layui.use(['table', 'layer', 'form', 'jquery'], function () {
       if (result.code !== 0) return layer.msg(result.msg || '笔录模板获取失败');
       layer.open({ type:1, title:`新建在线笔录 - ${escapeHtml(caseRow.case_no)}`, area:['560px','auto'], content:$('#ID_case_transcript_form').html(), success:() => {
         $('#ID_case_transcript_session').html(sessions.map(session => `<option value="${session.id}" data-type="${escapeHtml(session.session_type)}">${escapeHtml(session.session_no)}（${escapeHtml(sessionTypes[session.session_type] || session.session_type)}）</option>`).join(''));
-        $('#ID_case_transcript_template').html((result.data || []).map(template => `<option value="${escapeHtml(template.key)}" data-type="${escapeHtml(template.transcript_type)}">${escapeHtml(template.name)}${template.builtin ? '（内置）' : '（导入）'}</option>`).join(''));
+        const templates = result.data || [];
+        const renderTemplates = () => { const sessionType = $('#ID_case_transcript_session option:selected').data('type'); const available = templates.filter(template => template.transcript_type === sessionType || template.transcript_type === 'other'); $('#ID_case_transcript_template').html(available.map(template => `<option value="${escapeHtml(template.key)}" data-type="${escapeHtml(template.transcript_type)}">${escapeHtml(template.name)}${template.builtin ? '（内置）' : '（导入 DOCX）'}</option>`).join('') || '<option value="">当前会话暂无可用模板</option>'); form.render('select'); };
+        $('#ID_case_transcript_session').on('change', renderTemplates);
+        renderTemplates();
         form.render('select');
       }});
     });
@@ -325,6 +336,7 @@ layui.use(['table', 'layer', 'form', 'jquery'], function () {
   form.on('submit(case-session-submit)', data => { if (!activeCase) return false; const payload = Object.assign({}, data.field); ['planned_start_at', 'planned_end_at'].forEach(field => { if (payload[field]) payload[field] = new Date(payload[field]).toISOString(); }); request(`/api/cases/${activeCase.id}/sessions`, 'POST', payload, res => { if (res.code === 0) { layer.closeAll(); layer.msg(payload.planned_start_at ? '办案会话与计划已创建' : '办案会话已创建'); openCaseDetail(activeCase); } else layer.msg(res.msg); }); return false; });
   form.on('submit(case-transcript-submit)', data => { const sessionId = data.field.session_id; const selected = $('#ID_case_transcript_template option:selected'); const payload = { title:data.field.title, transcript_type:selected.data('type') || 'other', template_key:data.field.template_key, editor_type:'tiptap' }; request(`/api/case-sessions/${sessionId}/transcripts`, 'POST', payload, res => { if (res.code === 0) { layer.closeAll(); layer.open({ type:2, title:'在线笔录', area:['96%','96%'], resize:true, maxmin:true, content:`/transcript-editor.html?transcript_id=${encodeURIComponent(res.data.id)}` }); } else layer.msg(res.msg); }); return false; });
   form.on('submit(case-transcript-template-submit)', data => { request('/api/transcript-templates', 'POST', data.field, res => { if (res.code === 0) { layer.closeAll(); layer.msg('笔录模板已导入，可在新建笔录时选择'); } else layer.msg(res.msg); }); return false; });
+  form.on('submit(case-transcript-docx-template-submit)', data => { const formNode = document.getElementById('ID_case_transcript_docx_form_el'); const file = formNode.querySelector('[name="file"]').files[0]; if (!file) { layer.msg('请选择 DOCX 模板文件'); return false; } const payload = new FormData(formNode); $.ajax({ url:'/api/transcript-templates/docx', type:'POST', data:payload, processData:false, contentType:false, success:res => { if (res.code === 0) { layer.closeAll(); layer.msg('DOCX 模板已导入，可在新建笔录时选择'); } else layer.msg(res.msg || 'DOCX 模板导入失败'); }, error:xhr => layer.msg((xhr.responseJSON && xhr.responseJSON.msg) || 'DOCX 模板导入失败') }); return false; });
   table.on('tool(ID_case_table)', obj => { if (obj.event === 'detail') openCaseDetail(obj.data); if (obj.event === 'assign') openAssignmentDialog(obj.data); if (obj.event === 'archive') layer.confirm(`归档“${escapeHtml(obj.data.case_no)}”后将锁定案件材料，是否继续？`, { title:'归档案件' }, index => request(`/api/cases/${obj.data.id}/archive`, 'POST', {}, res => { if (res.code === 0) { layer.close(index); layer.msg('案件已归档'); loadWorkflow(); loadCases(); } else layer.msg(res.msg || '归档失败'); })); });
   form.render('select');
   loadDevices(() => { loadWorkflow(); loadCases(); });

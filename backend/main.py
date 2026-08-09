@@ -16,6 +16,7 @@ import ipaddress
 import json
 import secrets
 import zipfile
+import io
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -25,6 +26,9 @@ from zoneinfo import ZoneInfo
 import httpx
 import docker
 import psutil
+from docx import Document
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -175,7 +179,7 @@ from db import set_remote_hearing_task_state as db_set_remote_hearing_task_state
 from db import update_remote_hearing_participant as db_update_remote_hearing_participant
 from scheduler import cleanup_old_videos
 from tiptap_templates import BUILTIN_TIPTAP_TEMPLATES
-from utils import get_video_shanghai_time, get_zlm_secret, summarize_existing_recordings
+from utils import get_video_shanghai_time, get_video_shanghai_time_from_filename, get_zlm_secret, summarize_existing_recordings
 from gb28181 import Gb28181Server
 
 # =========================================================
@@ -217,6 +221,7 @@ STREAMUI_CONTAINER_NAME = os.getenv("STREAMUI_CONTAINER_NAME", "streamui-web-ser
 # =========================================================
 
 _last_record_start_attempt: dict[tuple[str, str, str], float] = {}
+_case_recording_streams: dict[int, list[dict]] = {}
 AUTH_SECRET = os.getenv("STREAMUI_AUTH_SECRET") or secrets.token_urlsafe(32)
 SESSION_COOKIE = "streamui_session"
 DEVICE_STALE_SECONDS = 90
@@ -649,6 +654,95 @@ def _device_command_audit_payload(payload: dict) -> dict:
     return audit_payload
 
 
+async def _start_platform_case_recording(session_id: int, device_id: str) -> None:
+    channels = [item for item in db_list_channels(device_id=device_id) if item.get("app") and item.get("stream")]
+    if not channels:
+        return
+    try:
+        response = await client.get(f"{ZLM_SERVER}/index/api/getMediaList", params={"secret": ZLM_SECRET})
+        media = response.json().get("data") or []
+    except (httpx.HTTPError, ValueError):
+        return
+    active = {(str(item.get("vhost") or "__defaultVhost__"), str(item.get("app") or ""), str(item.get("stream") or "")): bool(item.get("isRecordingMP4")) for item in media if isinstance(item, dict)}
+    started: list[dict] = []
+    for channel in channels:
+        key = (str(channel.get("vhost") or "__defaultVhost__"), str(channel["app"]), str(channel["stream"]))
+        if active.get(key):
+            continue
+        try:
+            response = await client.get(f"{ZLM_SERVER}/index/api/startRecord", params={"secret": ZLM_SECRET, "vhost": key[0], "app": key[1], "stream": key[2], "type": "1", "max_second": "300"})
+            if response.json().get("code") == 0:
+                started.append({"vhost": key[0], "app": key[1], "stream": key[2]})
+        except (httpx.HTTPError, ValueError):
+            continue
+    if started:
+        _case_recording_streams[session_id] = started
+
+
+async def _stop_platform_case_recording(session_id: int) -> None:
+    for stream in _case_recording_streams.pop(session_id, []):
+        try:
+            await client.get(f"{ZLM_SERVER}/index/api/stopRecord", params={"secret": ZLM_SECRET, "vhost": stream["vhost"], "app": stream["app"], "stream": stream["stream"], "type": "1"})
+        except httpx.HTTPError:
+            continue
+
+
+def _recording_window(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+
+async def sync_platform_case_recordings() -> None:
+    if not RECORD_ROOT.is_dir():
+        return
+    bindings = db_list_case_recording_bindings()
+    bound_paths = {str(item["recording_path"]) for item in bindings}
+    bound_sessions = {int(item["session_id"]) for item in bindings}
+    for session in db_list_case_sessions():
+        if session["status"] != "ended" or int(session["id"]) in bound_sessions:
+            continue
+        started_at = _recording_window(str(session.get("started_at") or ""))
+        ended_at = _recording_window(str(session.get("ended_at") or ""))
+        if not started_at or not ended_at:
+            continue
+        for channel in db_list_channels(device_id=str(session["device_id"])):
+            app_name, stream_name = str(channel.get("app") or ""), str(channel.get("stream") or "")
+            if not app_name or not stream_name:
+                continue
+            stream_root = RECORD_ROOT / app_name / stream_name
+            if not stream_root.is_dir():
+                continue
+            local_start = started_at.astimezone(ZoneInfo("Asia/Shanghai")).date()
+            local_end = ended_at.astimezone(ZoneInfo("Asia/Shanghai")).date()
+            for offset in range((local_end - local_start).days + 1):
+                record_dir = stream_root / (local_start + timedelta(days=offset)).isoformat()
+                if not record_dir.is_dir():
+                    continue
+                for file_path in record_dir.glob("*.mp4"):
+                    if not file_path.is_file() or time.time() - file_path.stat().st_mtime < 10:
+                        continue
+                    timing = get_video_shanghai_time_from_filename(file_path) or get_video_shanghai_time(file_path)
+                    if not timing:
+                        continue
+                    file_start = _recording_window(str(timing["start"]))
+                    file_end = _recording_window(str(timing["end"]))
+                    if not file_start or not file_end or file_end <= started_at or file_start >= ended_at:
+                        continue
+                    relative = file_path.relative_to(RECORD_ROOT).as_posix()
+                    if relative in bound_paths:
+                        continue
+                    created = db_create_case_recording_binding(session_id=int(session["id"]), app=app_name, stream=stream_name, recording_path=relative, started_at=str(timing["start"]), ended_at=str(timing["end"]), sha256=_file_sha256(file_path), integrity_status="verified", created_by="system:platform-recorder")
+                    if created:
+                        bound_paths.add(relative)
+                        bound_sessions.add(int(session["id"]))
+                        break
+                if int(session["id"]) in bound_sessions:
+                    break
+
+
 async def _execute_case_device_command(command: dict) -> None:
     session_id = int(command["session_id"])
     action = str(command["action"])
@@ -689,9 +783,11 @@ async def _execute_case_device_command(command: dict) -> None:
     db_finish_case_device_command(command_id=int(command["id"]), status="succeeded", request_data=audit_payload, response_data=result)
     if action == "start":
         db_update_case_session_status(session_id=session_id, status="active", actor="system:orchestrator")
+        await _start_platform_case_recording(session_id, str(command["device_id"]))
         if recording_mode == "sync_burn":
             db_upsert_case_disc_evidence(session_id=session_id, status="recording", detail={"start_command_id": int(command["id"])})
     elif action == "stop":
+        await _stop_platform_case_recording(session_id)
         if recording_mode == "disk":
             db_update_case_session_status(session_id=session_id, status="ended", actor="system:orchestrator")
             db_complete_case_assignment_if_ready(session_id=session_id, actor="system:orchestrator")
@@ -759,6 +855,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(apply_record_schedules, trigger=IntervalTrigger(seconds=30), id="record_schedules", replace_existing=True, max_instances=1)
     scheduler.add_job(db_mark_stale_devices_offline, kwargs={"stale_seconds": DEVICE_STALE_SECONDS}, trigger=IntervalTrigger(seconds=30), id="device_status", replace_existing=True)
     scheduler.add_job(run_due_case_device_commands, trigger=IntervalTrigger(seconds=10), id="case_orchestration", replace_existing=True, max_instances=1, coalesce=True)
+    scheduler.add_job(sync_platform_case_recordings, trigger=IntervalTrigger(seconds=15), id="case_recording_bindings", replace_existing=True, max_instances=1, coalesce=True)
 
     await GB28181_SERVER.start()
 
@@ -826,7 +923,7 @@ async def require_api_auth(request: Request, call_next):
     path = request.url.path
     public_paths = {"/api/auth/login", "/api/auth/logout", "/api/device/register", "/api/device/heartbeat", "/api/device/alarms", "/api/device/access-events", "/api/archives/upload"}
     device_archive_download = path.startswith("/api/device/archives/") and path.endswith("/download")
-    device_case_access = path == "/api/device/cases" or (path.startswith("/api/device/case-assignments/") and path.endswith("/ack"))
+    device_case_access = path in {"/api/device/cases", "/api/device/case-history"} or (path.startswith("/api/device/case-assignments/") and path.endswith("/ack"))
     device_session_access = path == "/api/device/case-sessions" or (path.startswith("/api/device/case-sessions/") and path.endswith("/status"))
     device_command_access = path.startswith("/api/device/case-sessions/") and (path.endswith("/remote-commands") or "/remote-commands/" in path and path.endswith("/ack"))
     device_remote_hearing_access = path == "/api/device/remote-hearing-tasks" or (path.startswith("/api/device/remote-hearing-tasks/") and path.endswith("/status"))
@@ -2157,10 +2254,75 @@ def _preview_tiptap_template(content: dict) -> dict:
     return replace(content)
 
 
+_DOCX_FIELD_NAMES = ("身份证（有效身份证件）号码", "住址（联系地址）", "第二被约谈人身份证号", "第二被约谈人工作单位", "第二被约谈人单位职务", "谈话人1单位职务", "谈话人2单位职务", "办案人员签名", "当事人签名", "记录人签名", "执法证件号1", "执法证件号2", "办案机关", "办案人员", "开始时间", "结束时间", "身份证号", "工作单位", "联系电话", "联系地址", "谈话地点", "讯问地点", "询问地点", "约谈地点", "讯问机关", "询问机关", "讯问人员", "询问人员", "被讯问人", "被询问人", "被约谈人", "谈话人一", "谈话人二", "被约谈人一", "被约谈人二", "姓名", "性别", "年龄", "民族", "职务", "住址", "日期", "时间", "地点", "案由")
+
+
+def _docx_inline_content(value: str) -> list[dict]:
+    pattern = re.compile(r"\{\{([^{}\n]{1,80})\}\}|(" + "|".join(re.escape(name) for name in _DOCX_FIELD_NAMES) + r")(：|:)?([\s\u3000_]{3,})")
+    result: list[dict] = []
+    offset = 0
+    for match in pattern.finditer(value):
+        if match.start() > offset:
+            result.append(_tiptap_text(value[offset:match.start()]))
+        if match.group(1):
+            field_name = match.group(1).strip()
+        else:
+            field_name = match.group(2).strip()
+            result.append(_tiptap_text(f"{match.group(2)}{match.group(3) or ''}"))
+        result.append({"type": "inputField", "attrs": {"name": field_name}})
+        offset = match.end()
+    if offset < len(value):
+        result.append(_tiptap_text(value[offset:]))
+    return result or [_tiptap_text(value)]
+
+
+def _docx_append_text(nodes: list[dict], value: str) -> None:
+    value = value.replace("\xa0", " ").strip("\n")
+    if not value.strip():
+        return
+    compact = value.strip()
+    if compact.startswith("问："):
+        text = compact[2:].strip()
+        node = {"type": "qaLine", "attrs": {"kind": "question"}}
+        if text:
+            node["content"] = _docx_inline_content(text)
+        nodes.append(node)
+    elif compact.startswith("答："):
+        text = compact[2:].strip()
+        node = {"type": "qaLine", "attrs": {"kind": "answer"}}
+        if text:
+            node["content"] = _docx_inline_content(text)
+        nodes.append(node)
+    elif not nodes and "笔录" in re.sub(r"\s+", "", compact) and len(compact) <= 40:
+        nodes.append({"type": "heading", "attrs": {"level": 1}, "content": [_tiptap_text(re.sub(r"\s+", "", compact))]})
+    else:
+        nodes.append({"type": "paragraph", "content": _docx_inline_content(value)})
+
+
+def _docx_template_content(payload: bytes) -> dict:
+    if len(payload) > 10 * 1024 * 1024:
+        raise ValueError("DOCX 模板不能超过 10MB")
+    try:
+        document = Document(io.BytesIO(payload))
+    except (KeyError, OSError, ValueError, zipfile.BadZipFile) as error:
+        raise ValueError("上传文件不是有效的 DOCX 文档") from error
+    nodes: list[dict] = []
+    for child in document.element.body.iterchildren():
+        if child.tag.endswith("}p"):
+            _docx_append_text(nodes, Paragraph(child, document).text)
+        elif child.tag.endswith("}tbl"):
+            table = Table(child, document)
+            for row in table.rows:
+                _docx_append_text(nodes, "    ".join(cell.text.replace("\n", " ") for cell in row.cells))
+    if not nodes:
+        raise ValueError("DOCX 文档未包含可导入的正文")
+    return _normalize_tiptap_content({"type": "doc", "content": nodes})
+
+
 def _normalize_tiptap_content(value: object) -> dict:
     if not isinstance(value, dict) or value.get("type") != "doc" or not isinstance(value.get("content"), list):
         raise ValueError("笔录内容格式无效")
-    allowed_nodes = {"doc", "paragraph", "heading", "text", "hardBreak", "bulletList", "orderedList", "listItem", "blockquote", "horizontalRule", "qaLine"}
+    allowed_nodes = {"doc", "paragraph", "heading", "text", "hardBreak", "bulletList", "orderedList", "listItem", "blockquote", "horizontalRule", "qaLine", "inputField"}
     allowed_marks = {"bold", "italic", "strike", "code"}
     count = 0
 
@@ -2187,6 +2349,11 @@ def _normalize_tiptap_content(value: object) -> dict:
             result["attrs"] = {"level": min(3, max(1, level))}
         if kind == "qaLine":
             result["attrs"] = {"kind": "answer" if (node.get("attrs") or {}).get("kind") == "answer" else "question"}
+        if kind == "inputField":
+            name = str((node.get("attrs") or {}).get("name") or "").strip()
+            if not name or len(name) > 80:
+                raise ValueError("笔录填写字段无效")
+            result["attrs"] = {"name": name}
         content = node.get("content")
         if content is not None:
             if not isinstance(content, list):
@@ -2198,6 +2365,63 @@ def _normalize_tiptap_content(value: object) -> dict:
     if len(json.dumps(normalized, ensure_ascii=False)) > 500000:
         raise ValueError("笔录内容过大")
     return normalized
+
+
+def _tiptap_plain_text(node: object) -> str:
+    if not isinstance(node, dict):
+        return ""
+    if node.get("type") == "text":
+        return str(node.get("text") or "")
+    return "".join(_tiptap_plain_text(item) for item in node.get("content", []))
+
+
+def _transcript_quality_issues(transcript: dict, content: dict) -> list[str]:
+    text = _tiptap_plain_text(content).strip()
+    issues: list[str] = []
+    placeholders = sorted(set(re.findall(r"\{\{[^{}\n]{1,80}\}\}", text)))
+    if placeholders:
+        issues.append(f"仍有未填写字段：{'、'.join(placeholders[:6])}{'等' if len(placeholders) > 6 else ''}")
+    empty_fields: list[str] = []
+
+    def collect_empty_fields(node: object) -> None:
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "inputField" and not _tiptap_plain_text(node).strip():
+            name = str((node.get("attrs") or {}).get("name") or "填写字段")
+            if name not in empty_fields:
+                empty_fields.append(name)
+        for item in node.get("content", []):
+            collect_empty_fields(item)
+
+    collect_empty_fields(content)
+    if empty_fields:
+        issues.append(f"仍有未填写字段：{'、'.join(empty_fields[:6])}{'等' if len(empty_fields) > 6 else ''}")
+    if len(re.sub(r"\s+", "", text)) < 30:
+        issues.append("笔录正文内容不足，不能定稿")
+    if transcript.get("transcript_type") in {"interrogation", "inquiry"}:
+        question_count = 0
+        answer_count = 0
+        for item in content.get("content", []):
+            if not isinstance(item, dict):
+                continue
+            value = _tiptap_plain_text(item).strip()
+            if not value:
+                continue
+            if item.get("type") == "qaLine":
+                if (item.get("attrs") or {}).get("kind") == "answer":
+                    answer_count += 1
+                else:
+                    question_count += 1
+            elif item.get("type") == "paragraph":
+                if value.startswith("问："):
+                    question_count += 1
+                elif value.startswith("答："):
+                    answer_count += 1
+        if not question_count or not answer_count:
+            issues.append("讯问或询问笔录至少需要一组已填写的问答")
+        elif question_count != answer_count:
+            issues.append("问答条目数量不一致，请补齐问答记录")
+    return issues
 
 
 def _render_tiptap_html(node: dict) -> str:
@@ -2223,12 +2447,15 @@ def _render_tiptap_html(node: dict) -> str:
     if kind == "qaLine":
         label = "答：" if (node.get("attrs") or {}).get("kind") == "answer" else "问："
         return f"<p class=\"qa-line\"><strong>{label}</strong><span>{content or '<br>'}</span></p>"
+    if kind == "inputField":
+        name = html.escape(str((node.get("attrs") or {}).get("name") or ""))
+        return f"<span class=\"input-field\" data-field-name=\"{name}\">{content or '<br>'}</span>"
     return ""
 
 
 def _transcript_snapshot_html(transcript: dict, content: dict) -> str:
     body = _render_tiptap_html(content)
-    return f"""<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>{html.escape(str(transcript['title']))}</title><style>body{{max-width:820px;margin:32px auto;font:16px/1.8 'Microsoft YaHei',sans-serif;color:#111}}h1{{text-align:center}}p{{margin:0 0 12px}}blockquote{{margin:12px 0;padding-left:16px;border-left:3px solid #999}}.qa-line{{display:flex;gap:8px}}.qa-line strong{{flex:0 0 2.5em}}.qa-line span{{flex:1;border-bottom:1px solid #333;min-height:1.8em}}@media print{{body{{margin:0}}}}</style></head><body>{body}</body></html>"""
+    return f"""<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>{html.escape(str(transcript['title']))}</title><style>body{{max-width:820px;margin:32px auto;font:16px/1.8 'Microsoft YaHei',sans-serif;color:#111}}h1{{text-align:center}}p{{margin:0 0 12px}}blockquote{{margin:12px 0;padding-left:16px;border-left:3px solid #999}}.qa-line{{display:flex;gap:8px}}.qa-line strong{{flex:0 0 2.5em}}.qa-line span{{flex:1;border-bottom:1px solid #333;min-height:1.8em}}.input-field{{display:inline-block;min-width:8em;border-bottom:1px solid #333}}@media print{{body{{margin:0}}}}</style></head><body>{body}</body></html>"""
 
 
 @app.get("/api/cases", summary="获取案件列表", tags=["案件"])
@@ -2471,6 +2698,25 @@ async def post_transcript_template(request: Request):
     return {"code": 0, "data": saved}
 
 
+@app.post("/api/transcript-templates/docx", summary="导入 DOCX 笔录模板", tags=["案件"])
+async def post_transcript_template_docx(request: Request, file: UploadFile = File(...), template_key: str = Form(...), name: str = Form(""), transcript_type: str = Form("other")):
+    if not _is_admin(request):
+        return {"code": 403, "msg": "仅管理员可导入笔录模板"}
+    key = template_key.strip()
+    title = name.strip() or Path(file.filename or "").stem.strip()
+    kind = transcript_type.strip()
+    if not (file.filename or "").lower().endswith(".docx"):
+        return {"code": -1, "msg": "仅支持 DOCX 格式笔录模板"}
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{2,63}", key) or key in TRANSCRIPT_TEMPLATES or not title or len(title) > 80 or kind not in TRANSCRIPT_TYPES:
+        return {"code": -1, "msg": "模板标识、名称或笔录类型不合法"}
+    try:
+        content = _docx_template_content(await file.read())
+    except ValueError as error:
+        return {"code": -1, "msg": str(error)}
+    saved = db_upsert_case_transcript_template(template_key=key, name=title, transcript_type=kind, content_json=json.dumps(content, ensure_ascii=False, separators=(",", ":")), actor=str((_request_user(request) or {}).get("username", "unknown")))
+    return {"code": 0, "data": saved}
+
+
 @app.get("/api/transcripts/{transcript_id}/editor", summary="获取在线笔录编辑内容", tags=["案件"])
 async def get_case_transcript_editor(transcript_id: int):
     transcript = db_get_case_transcript(transcript_id=transcript_id)
@@ -2480,7 +2726,7 @@ async def get_case_transcript_editor(transcript_id: int):
         content = _normalize_tiptap_content(json.loads(str(transcript["draft_content_json"])))
     except (ValueError, TypeError, json.JSONDecodeError):
         content = _default_transcript_content(transcript)
-    return {"code": 0, "data": {"transcript": transcript, "content": content, "templates": _transcript_template_options()}}
+    return {"code": 0, "data": {"transcript": transcript, "content": content, "quality_issues": _transcript_quality_issues(transcript, content), "templates": _transcript_template_options()}}
 
 
 @app.put("/api/transcripts/{transcript_id}/content", summary="保存在线笔录草稿", tags=["案件"])
@@ -2512,6 +2758,10 @@ async def post_publish_case_transcript(transcript_id: int, request: Request):
         content = _normalize_tiptap_content(json.loads(str(transcript["draft_content_json"])))
     except (ValueError, TypeError, json.JSONDecodeError):
         return {"code": -1, "msg": "笔录草稿损坏"}
+    if bool(body.get("finalize")):
+        quality_issues = _transcript_quality_issues(transcript, content)
+        if quality_issues:
+            return {"code": -1, "msg": "笔录尚未满足定稿要求", "data": {"issues": quality_issues}}
     document = _transcript_snapshot_html(transcript, content).encode("utf-8")
     digest = hashlib.sha256(document).hexdigest()
     next_version = int(transcript["current_version"]) + 1
@@ -2777,6 +3027,21 @@ async def get_device_cases(device_id: str = Query(...), access_key: str = Header
     if not device or not device.get("enabled") or not db_verify_device_key(device_id=device_id, access_key=access_key):
         return {"code": 403, "msg": "设备认证失败"}
     assignments = [item for item in db_list_case_assignments(device_id=device_id) if item["status"] != "completed" and item["case_status"] not in {"closed", "archived"}]
+    return {"code": 0, "data": assignments}
+
+
+@app.get("/api/device/case-history", summary="设备获取历史下发案件", tags=["案件"])
+async def get_device_case_history(device_id: str = Query(...), access_key: str = Header(..., alias="X-Device-Access-Key")):
+    device = db_get_device(device_id=device_id)
+    if not device or not device.get("enabled") or not db_verify_device_key(device_id=device_id, access_key=access_key):
+        return {"code": 403, "msg": "设备认证失败"}
+    assignments = db_list_case_assignments(device_id=device_id)[:100]
+    for assignment in assignments:
+        device_sessions = [item for item in db_list_case_sessions(case_id=int(assignment["case_id"])) if item["device_id"] == device_id]
+        assignment["session_count"] = len(device_sessions)
+        if device_sessions:
+            assignment["latest_session_no"] = device_sessions[0]["session_no"]
+            assignment["latest_session_status"] = device_sessions[0]["status"]
     return {"code": 0, "data": assignments}
 
 
@@ -3260,7 +3525,7 @@ async def _add_stream_proxy_to_zlm(
     stream: str,
     url: str,
     audio_type: int | None,
-) -> None:
+) -> dict:
     query_params = {
         "secret": ZLM_SECRET,
         "vhost": vhost,
@@ -3270,9 +3535,14 @@ async def _add_stream_proxy_to_zlm(
     }
     query_params.update(_audio_type_to_zlm_params(audio_type))
     try:
-        await client.get(f"{ZLM_SERVER}/index/api/addStreamProxy", params=query_params)
-    except Exception:
-        return
+        response = await client.get(f"{ZLM_SERVER}/index/api/addStreamProxy", params=query_params)
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as error:
+        return {"code": -1, "msg": f"ZLMediaKit 请求失败: {error}"}
+    if payload.get("code") != 0:
+        return {"code": -1, "msg": str(payload.get("msg") or "ZLMediaKit 拒绝创建拉流代理"), "detail": payload}
+    return {"code": 0, "data": payload}
 
 
 async def _del_stream_proxy_from_zlm(*, vhost: str, app: str, stream: str) -> None:
@@ -3521,6 +3791,16 @@ async def post_pull_proxy(
             "msg": "源流地址必须以 rtsp://、rtmp://、http:// 或 https:// 开头",
         }
 
+    zlm_result = await _add_stream_proxy_to_zlm(
+        vhost=vhost,
+        app=app,
+        stream=stream,
+        url=url,
+        audio_type=audio_type,
+    )
+    if zlm_result["code"] != 0:
+        return {"code": -1, "msg": zlm_result["msg"], "detail": zlm_result.get("detail")}
+
     db_row = db_upsert_pull_proxy(
         vhost=vhost,
         app=app,
@@ -3529,20 +3809,10 @@ async def post_pull_proxy(
         audio_type=audio_type,
     )
 
-    asyncio.create_task(
-        _add_stream_proxy_to_zlm(
-            vhost=vhost,
-            app=app,
-            stream=stream,
-            url=url,
-            audio_type=audio_type,
-        )
-    )
-
     warning = summarize_existing_recordings(
         record_root=RECORD_ROOT, app=app, stream=stream
     )
-    return {"code": 0, "msg": "已保存，后台连接中", "db": db_row, "warning": warning}
+    return {"code": 0, "msg": "拉流代理已创建", "db": db_row, "warning": warning}
 
 
 @app.delete("/api/stream/pull-proxy", summary="删除拉流代理", tags=["流"])

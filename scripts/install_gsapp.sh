@@ -311,28 +311,43 @@ install_system_packages() {
     dpkg --configure -a
     return
   fi
-  log "Installing system packages via apt"
+  local runtime_packages=(
+    ca-certificates
+    curl
+    ffmpeg
+    nginx
+    python3
+    python3-venv
+    python3-pip
+  )
+  local missing_packages=()
+  local package
+  for package in "${runtime_packages[@]}"; do
+    if ! dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null | grep -qx 'installed'; then
+      missing_packages+=("$package")
+    fi
+  done
+
+  local media_server_bin="${MEDIA_ROOT}/bin/MediaServer"
+  if [[ ! -x "$media_server_bin" && ( "$ZLM_MODE" == "build" || "$ZLM_MODE" == "auto" ) ]]; then
+    local build_packages=(build-essential cmake git pkg-config libssl-dev zlib1g-dev)
+    for package in "${build_packages[@]}"; do
+      if ! dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null | grep -qx 'installed'; then
+        missing_packages+=("$package")
+      fi
+    done
+  fi
+
+  if [[ "${#missing_packages[@]}" -eq 0 ]]; then
+    log "System runtime and build dependencies are already installed; skipping apt"
+    return
+  fi
+
+  log "Installing missing system packages via apt: ${missing_packages[*]}"
   rm -f /etc/apt/sources.list.d/onlyoffice.list /usr/share/keyrings/onlyoffice.gpg
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y \
-    ca-certificates \
-    curl \
-    ffmpeg \
-    nginx \
-    python3 \
-    python3-venv \
-    python3-pip
-
-  if [[ "$ZLM_MODE" == "build" || "$ZLM_MODE" == "auto" ]]; then
-    apt-get install -y \
-      build-essential \
-      cmake \
-      git \
-      pkg-config \
-      libssl-dev \
-      zlib1g-dev
-  fi
+  apt-get install -y "${missing_packages[@]}"
 }
 
 deploy_project() {
@@ -385,7 +400,7 @@ EOF
 install_python_deps() {
   if [[ "$QUICK_DEPLOY" -eq 1 ]]; then
     [[ -x "$INSTALL_DIR/backend/.venv/bin/python" ]] || die "Quick deployment requires an existing backend virtual environment; run without --quick first"
-    "$INSTALL_DIR/backend/.venv/bin/python" -c 'import fastapi, uvicorn, apscheduler, httpx, psutil, docker, multipart, sqlite3' || die "Quick deployment found an incomplete backend virtual environment; run without --quick"
+    "$INSTALL_DIR/backend/.venv/bin/python" -c 'import fastapi, uvicorn, apscheduler, httpx, psutil, docker, docx, multipart, sqlite3' || die "Quick deployment found an incomplete backend virtual environment; run without --quick"
     log "Quick deployment: reusing existing Python virtual environment"
     return
   fi
@@ -405,10 +420,10 @@ install_python_deps() {
   fi
   if [[ -n "$PYTHON_RUNTIME_LD_LIBRARY_PATH" ]]; then
     env LD_LIBRARY_PATH="$PYTHON_RUNTIME_LD_LIBRARY_PATH" "$INSTALL_DIR/backend/.venv/bin/pip" install "${pip_options[@]}" \
-      fastapi uvicorn apscheduler httpx psutil docker python-multipart
+      fastapi uvicorn apscheduler httpx psutil docker python-multipart python-docx
   else
     "$INSTALL_DIR/backend/.venv/bin/pip" install "${pip_options[@]}" \
-      fastapi uvicorn apscheduler httpx psutil docker python-multipart
+      fastapi uvicorn apscheduler httpx psutil docker python-multipart python-docx
   fi
 }
 
@@ -664,13 +679,17 @@ start_services() {
     rm -f /etc/systemd/system/gsapp-onlyoffice.service
   fi
   systemctl disable --now ds-converter ds-docservice ds-metrics 2>/dev/null || true
-  systemctl enable gsapp.service
-  systemctl restart gsapp.service
-
   if [[ -x "${MEDIA_ROOT}/bin/MediaServer" ]]; then
     systemctl enable zlmediakit.service
-    systemctl restart zlmediakit.service
+    if [[ "$QUICK_DEPLOY" -eq 1 ]]; then
+      systemctl start zlmediakit.service
+    else
+      systemctl restart zlmediakit.service
+    fi
   fi
+
+  systemctl enable gsapp.service
+  systemctl restart gsapp.service
 
   if [[ "$NGINX_PRIVATE" -eq 1 ]]; then
     systemctl enable gsapp-nginx.service
