@@ -775,7 +775,7 @@ async def _execute_case_device_command(command: dict) -> None:
     if not device_action:
         db_finish_case_device_command(command_id=int(command["id"]), status="failed", request_data={}, response_data={}, error_message="未知设备命令")
         return
-    data = {"user_name": "streamui", "sign": str(command["session_no"])} if action == "start" else ({"queryStat": action == "verify_status"} if action.startswith("verify_") else {})
+    data = {"user_name": "streamui", "sign": str(command["session_no"]), "case_no": str(command["case_no"])} if action == "start" else ({"queryStat": action == "verify_status"} if action.startswith("verify_") else {})
     payload = {"restfulApi": "WebAjax", "tokenKey": secrets.token_hex(16), "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3], "authKey": LM700_AUTH_KEY, "interface": {"action": device_action, "matcher": "devControl", "data": data}}
     audit_payload = _device_command_audit_payload(payload)
     try:

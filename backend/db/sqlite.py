@@ -2329,8 +2329,9 @@ def set_remote_hearing_task_state(*, task_id: int, state: str, actor: str) -> di
 
 
 def _command_query() -> str:
-    return """SELECT cmd.*, s.case_id, s.session_no, s.recording_mode, s.status AS session_status, d.name AS device_name
+    return """SELECT cmd.*, s.case_id, s.session_no, c.case_no, s.recording_mode, s.status AS session_status, d.name AS device_name
               FROM case_device_command cmd JOIN case_session s ON s.id=cmd.session_id
+              JOIN case_info c ON c.id=s.case_id
               JOIN device d ON d.device_id=cmd.device_id"""
 
 
