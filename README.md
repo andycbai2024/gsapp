@@ -227,6 +227,8 @@ Content-Type: application/json
 
 其中 `status` 可取 `received`、`handling` 或 `completed`。平台用户通过 `GET /api/cases/{case_id}` 查询案件全貌，包括已下发设备、办案会话、笔录及同步音视频；通过 `GET /api/cases/{case_id}/audit-logs` 查询审计轨迹。文件仍保存于 `backend/data/device_archives/<设备ID>/`，数据库保存案件、会话、文件元数据和 SHA-256，下载不会接受客户端提供的服务器路径。
 
+管理员在案件页导入 DOCX 笔录模板后，平台保留原始 DOCX 和 SHA-256。已启用的 LM700 会在平台心跳成功后通过设备接入密钥调用模板清单和下载接口，仅下载新增或哈希变化的模板；设备未出现在平台清单中的本地导入模板会保留，供离线办案使用。
+
 平台在设备接收案件后创建办案会话：`POST /api/cases/{case_id}/sessions`。设备客户端上传笔录或办案材料时，使用 `multipart/form-data` 调用下列接口。`case_id` 必须是已下发到该设备的案件，`session_id` 必须属于该案件且属于同一设备；`archive_type` 取 `transcript`、`document`、`audio` 或 `video`：
 
 ```http

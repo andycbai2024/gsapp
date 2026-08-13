@@ -144,7 +144,9 @@ from db import list_archive_folders as db_list_archive_folders
 from db import update_archive_file as db_update_archive_file
 from db import assign_case_to_device as db_assign_case_to_device
 from db import create_case as db_create_case
+from db import delete_case as db_delete_case
 from db import get_case as db_get_case
+from db import get_case_by_no as db_get_case_by_no
 from db import get_case_assignment as db_get_case_assignment
 from db import list_case_assignments as db_list_case_assignments
 from db import list_cases as db_list_cases
@@ -153,6 +155,7 @@ from db import archive_is_immutable as db_archive_is_immutable
 from db import add_case_transcript_version as db_add_case_transcript_version
 from db import create_case_media_asset as db_create_case_media_asset
 from db import create_case_session as db_create_case_session
+from db import reschedule_case_session as db_reschedule_case_session
 from db import create_case_transcript as db_create_case_transcript
 from db import finalize_case_transcript as db_finalize_case_transcript
 from db import get_case_session as db_get_case_session
@@ -219,6 +222,7 @@ def _resolve_record_root() -> Path:
 
 RECORD_ROOT = _resolve_record_root()
 ARCHIVE_ROOT = Path(os.getenv("STREAMUI_ARCHIVE_ROOT", str(Path(__file__).resolve().parent / "data" / "device_archives")))
+TRANSCRIPT_TEMPLATE_ROOT = ARCHIVE_ROOT / "_transcript_templates"
 ONLYOFFICE_DOCUMENT_SERVER_URL = os.getenv("ONLYOFFICE_DOCUMENT_SERVER_URL", "/onlyoffice").rstrip("/")
 ONLYOFFICE_PLATFORM_URL = os.getenv("ONLYOFFICE_PLATFORM_URL", "http://streamui-web-server:10800").rstrip("/")
 ONLYOFFICE_JWT_SECRET = os.getenv("ONLYOFFICE_JWT_SECRET", "")
@@ -752,6 +756,26 @@ async def sync_platform_case_recordings() -> None:
                     break
 
 
+async def _lm700_recording_busy(url: str) -> bool | None:
+    payload = {
+        "restfulApi": "WebAjax",
+        "tokenKey": secrets.token_hex(16),
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        "authKey": LM700_AUTH_KEY,
+        "interface": {"action": "serviceRunning", "matcher": "interQuery", "data": {}},
+    }
+    try:
+        response = await client.post(url, json=payload)
+        response.raise_for_status()
+        result = response.json()
+        values = result.get("returnData") if int(result.get("returnVal", -1)) == 0 else None
+        if not isinstance(values, dict):
+            return None
+        return int(values.get("recordAction") or 0) != 0 or int(values.get("cdrWorkAction") or 0) != 0
+    except (httpx.HTTPError, ValueError, TypeError):
+        return None
+
+
 async def _execute_case_device_command(command: dict) -> None:
     session_id = int(command["session_id"])
     action = str(command["action"])
@@ -765,6 +789,14 @@ async def _execute_case_device_command(command: dict) -> None:
     if not device or not device.get("enabled") or not url:
         db_finish_case_device_command(command_id=int(command["id"]), status="failed", request_data={}, response_data={}, error_message="设备未启用或未配置有效控制地址")
         return
+    if action == "start":
+        busy = await _lm700_recording_busy(url)
+        if busy is None:
+            db_finish_case_device_command(command_id=int(command["id"]), status="failed", request_data={}, response_data={}, error_message="无法确认设备录像或刻录状态")
+            return
+        if busy:
+            db_finish_case_device_command(command_id=int(command["id"]), status="failed", request_data={}, response_data={}, error_message="设备正在录像或刻录，不能启动并行办案会话")
+            return
     action_map = {
         "start": "cdrWorkStart" if recording_mode == "sync_burn" else "recordStart",
         "stop": "cdrWorkCease" if recording_mode == "sync_burn" else "recordCease",
@@ -933,10 +965,11 @@ async def require_api_auth(request: Request, call_next):
     public_paths = {"/api/auth/login", "/api/auth/logout", "/api/device/register", "/api/device/heartbeat", "/api/device/alarms", "/api/device/access-events", "/api/archives/upload"}
     device_archive_download = path.startswith("/api/device/archives/") and path.endswith("/download")
     device_case_access = path in {"/api/device/cases", "/api/device/case-history"} or (path.startswith("/api/device/case-assignments/") and path.endswith("/ack"))
+    device_template_access = path == "/api/device/transcript-templates" or (path.startswith("/api/device/transcript-templates/") and path.endswith("/download"))
     device_session_access = path == "/api/device/case-sessions" or (path.startswith("/api/device/case-sessions/") and path.endswith("/status"))
     device_command_access = path.startswith("/api/device/case-sessions/") and (path.endswith("/remote-commands") or "/remote-commands/" in path and path.endswith("/ack"))
     device_remote_hearing_access = path == "/api/device/remote-hearing-tasks" or (path.startswith("/api/device/remote-hearing-tasks/") and path.endswith("/status"))
-    if path.startswith("/api/") and path not in public_paths and not device_archive_download and not device_case_access and not device_session_access and not device_command_access and not device_remote_hearing_access:
+    if path.startswith("/api/") and path not in public_paths and not device_archive_download and not device_case_access and not device_template_access and not device_session_access and not device_command_access and not device_remote_hearing_access:
         user = _request_user(request)
         if not user:
             from fastapi.responses import JSONResponse
@@ -2222,6 +2255,18 @@ def _transcript_template_options() -> list[dict]:
     return builtin + imported
 
 
+def _transcript_template_docx_path(template: dict) -> Path | None:
+    relative_path = Path(str(template.get("source_docx_path") or ""))
+    if not relative_path or relative_path.is_absolute() or ".." in relative_path.parts:
+        return None
+    candidate = TRANSCRIPT_TEMPLATE_ROOT / relative_path
+    try:
+        candidate.resolve().relative_to(TRANSCRIPT_TEMPLATE_ROOT.resolve())
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
 def _preview_tiptap_template(content: dict) -> dict:
     values = {
         "{{case_no}}": "演示案件〔2026〕001号",
@@ -2568,12 +2613,67 @@ async def post_case(request: Request):
     handling_unit = str(body.get("handling_unit") or "").strip()
     case_reason = str(body.get("case_reason") or "").strip()
     lead_investigator = str(body.get("lead_investigator") or "").strip()
+    incident_at = str(body.get("incident_at") or "").strip()
+    arrival_method = str(body.get("arrival_method") or "").strip()
+    interviewer_one_unit = str(body.get("interviewer_one_unit") or "").strip()
+    interviewer_two = str(body.get("interviewer_two") or "").strip()
+    interviewer_two_unit = str(body.get("interviewer_two_unit") or "").strip()
+    recorder_name = str(body.get("recorder_name") or "").strip()
+    subject_name = str(body.get("subject_name") or "").strip()
+    interview_location = str(body.get("interview_location") or "").strip()
+    transcript_template = str(body.get("transcript_template") or "").strip()
+    planned_start_at = str(body.get("planned_start_at") or "").strip()
+    planned_end_at = str(body.get("planned_end_at") or "").strip()
+    device_id = str(body.get("device_id") or "").strip()
+    try:
+        inquiry_count = max(1, int(body.get("inquiry_count") or 1))
+    except (TypeError, ValueError):
+        return {"code": -1, "msg": "问话次数不合法"}
     if not case_no:
         case_no = f"AJ-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}"
-    if not name or len(case_no) > 64 or len(name) > 160 or len(case_reference) > 128 or len(case_category) > 32 or len(handling_unit) > 128 or len(case_reason) > 1000 or len(lead_investigator) > 80 or case_type not in CASE_TYPES or case_category not in {"", "talk", "inquiry", "interrogation", "identification", "other"} or any(part in case_no for part in ("/", "\\", "..")):
+    device = db_get_device(device_id=device_id)
+    if not name or not device_id or not device or not device.get("enabled") or len(case_no) > 64 or len(name) > 160 or len(case_reference) > 128 or len(case_category) > 32 or len(handling_unit) > 128 or len(case_reason) > 1000 or any(len(value) > 160 for value in (lead_investigator, incident_at, arrival_method, interviewer_one_unit, interviewer_two, interviewer_two_unit, recorder_name, subject_name, interview_location, transcript_template, planned_start_at, planned_end_at)) or inquiry_count > 99 or case_type not in CASE_TYPES or case_category not in {"", "talk", "inquiry", "interrogation", "identification", "other"} or any(part in case_no for part in ("/", "\\", "..")):
         return {"code": -1, "msg": "案件编号、名称、类型、承办单位或主办人员不合法"}
-    created = db_create_case(case_no=case_no, name=name, case_type=case_type, case_reference=case_reference, case_category=case_category, handling_unit=handling_unit, case_reason=case_reason, lead_investigator=lead_investigator, created_by=str((_request_user(request) or {}).get("username", "unknown")))
+    templates = await _device_note_templates(device)
+    if not templates or not transcript_template or transcript_template not in templates:
+        return {"code": -1, "msg": "所选笔录模板不在目标设备中，请重新选择"}
+    actor = str((_request_user(request) or {}).get("username", "unknown"))
+    created = db_create_case(case_no=case_no, name=name, case_type=case_type, case_reference=case_reference, case_category=case_category, handling_unit=handling_unit, case_reason=case_reason, lead_investigator=lead_investigator, incident_at=incident_at, arrival_method=arrival_method, interviewer_one_unit=interviewer_one_unit, interviewer_two=interviewer_two, interviewer_two_unit=interviewer_two_unit, recorder_name=recorder_name, subject_name=subject_name, interview_location=interview_location, inquiry_count=inquiry_count, transcript_template=transcript_template, planned_start_at=planned_start_at, planned_end_at=planned_end_at, created_by=actor)
+    if created:
+        db_assign_case_to_device(case_id=int(created["id"]), device_id=device_id, assigned_by=actor)
+        created = db_get_case(case_id=int(created["id"]))
     return {"code": 0, "data": created} if created else {"code": -1, "msg": "案件编号已存在"}
+
+
+@app.get("/api/devices/{device_id}/note-templates", summary="获取设备笔录模板", tags=["案件"])
+async def get_device_note_templates(device_id: str, request: Request):
+    if not _can_manage(request):
+        return {"code": 403, "msg": "需要管理员或操作员权限"}
+    device = db_get_device(device_id=device_id)
+    url = _lm700_control_url((device or {}).get("address") or (device or {}).get("web_url"))
+    if not device or not device.get("enabled") or not url:
+        return {"code": -1, "msg": "设备未启用或未配置有效控制地址"}
+    templates = await _device_note_templates(device)
+    if templates is None:
+        return {"code": -1, "msg": "设备笔录模板读取失败"}
+    return {"code": 0, "data": templates}
+
+
+async def _device_note_templates(device: dict) -> list[str] | None:
+    url = _lm700_control_url(device.get("address") or device.get("web_url"))
+    if not url:
+        return None
+    payload = {"restfulApi": "WebAjax", "tokenKey": secrets.token_hex(16), "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3], "authKey": LM700_AUTH_KEY, "interface": {"action": "noteTemplate", "matcher": "interQuery", "data": {}}}
+    try:
+        response = await client.post(url, json=payload)
+        response.raise_for_status()
+        result = response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    templates = result.get("returnData") if int(result.get("returnVal", -1)) == 0 else []
+    if not isinstance(templates, list):
+        templates = []
+    return [str(item) for item in templates if isinstance(item, str) and item]
 
 
 @app.get("/api/cases/{case_id}", summary="获取案件办案全貌", tags=["案件"])
@@ -2728,6 +2828,25 @@ async def post_case_session_command(session_id: int, request: Request):
     return {"code": 0, "data": command} if command else {"code": -1, "msg": "命令创建失败"}
 
 
+@app.post("/api/case-sessions/{session_id}/reschedule", summary="重新排期未执行办案会话", tags=["案件"])
+async def post_case_session_reschedule(session_id: int, request: Request):
+    if not _can_manage(request):
+        return {"code": 403, "msg": "需要管理员或操作员权限"}
+    body = await request.json()
+    planned_start_at = _parse_planned_time(body.get("planned_start_at"))
+    planned_end_at = _parse_planned_time(body.get("planned_end_at"))
+    if not planned_start_at or not planned_end_at or planned_end_at <= planned_start_at or planned_start_at <= _now_iso():
+        return {"code": -1, "msg": "请设置未来的开始时间与晚于开始时间的结束时间"}
+    actor = str((_request_user(request) or {}).get("username", "unknown"))
+    updated = db_reschedule_case_session(session_id=session_id, planned_start_at=planned_start_at, planned_end_at=planned_end_at, actor=actor)
+    if not updated:
+        return {"code": -1, "msg": "仅未开始的办案会话可以重新排期"}
+    version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+    db_create_case_device_command(session_id=session_id, action="start", scheduled_at=planned_start_at, idempotency_key=f"session:{session_id}:reschedule:{version}:start", created_by=actor)
+    db_create_case_device_command(session_id=session_id, action="stop", scheduled_at=planned_end_at, idempotency_key=f"session:{session_id}:reschedule:{version}:stop", created_by=actor)
+    return {"code": 0, "data": updated}
+
+
 @app.post("/api/case-sessions/{session_id}/status", summary="更新办案会话状态", tags=["案件"])
 async def post_case_session_status(session_id: int, request: Request):
     if not _can_manage(request):
@@ -2737,8 +2856,15 @@ async def post_case_session_status(session_id: int, request: Request):
     occurred_at = str(body.get("occurred_at") or "").strip() or None
     if status not in CASE_SESSION_STATUSES:
         return {"code": -1, "msg": "会话状态无效"}
-    updated = db_update_case_session_status(session_id=session_id, status=status, occurred_at=occurred_at, actor=str((_request_user(request) or {}).get("username", "unknown")))
-    return {"code": 0, "data": updated} if updated else {"code": -1, "msg": "办案会话不存在"}
+    session = db_get_case_session(session_id=session_id)
+    if not session:
+        return {"code": -1, "msg": "办案会话不存在"}
+    actor = str((_request_user(request) or {}).get("username", "unknown"))
+    updated = db_update_case_session_status(session_id=session_id, status=status, occurred_at=occurred_at, actor=actor)
+    if status == "ended" and (updated or session["status"] == "ended"):
+        db_complete_case_assignment_if_ready(session_id=session_id, actor=actor)
+        return {"code": 0, "data": updated or db_get_case_session(session_id=session_id)}
+    return {"code": 0, "data": updated} if updated else {"code": -1, "msg": "办案会话状态不允许逆向流转"}
 
 
 @app.post("/api/device/case-sessions/{session_id}/status", summary="设备回执办案会话状态", tags=["案件"])
@@ -2755,7 +2881,11 @@ async def post_device_case_session_status(session_id: int, request: Request, acc
         return {"code": -1, "msg": "设备未处于可办案状态"}
     if status == "active" and assignment["status"] == "received":
         db_update_case_assignment_status(assignment_id=int(assignment["id"]), status="handling", actor=f"device:{device_id}")
-    updated = db_update_case_session_status(session_id=session_id, status=status, occurred_at=occurred_at, actor=f"device:{device_id}")
+    actor = f"device:{device_id}"
+    updated = db_update_case_session_status(session_id=session_id, status=status, occurred_at=occurred_at, actor=actor)
+    if status == "ended" and (updated or session["status"] == "ended"):
+        db_complete_case_assignment_if_ready(session_id=session_id, actor=actor)
+        return {"code": 0, "data": updated or db_get_case_session(session_id=session_id)}
     return {"code": 0, "data": updated} if updated else {"code": -1, "msg": "办案会话状态不允许逆向流转"}
 
 
@@ -2840,10 +2970,18 @@ async def post_transcript_template_docx(request: Request, file: UploadFile = Fil
     if not re.fullmatch(r"[a-z][a-z0-9_-]{2,63}", key) or key in TRANSCRIPT_TEMPLATES or not title or len(title) > 80 or kind not in TRANSCRIPT_TYPES:
         return {"code": -1, "msg": "模板标识、名称或笔录类型不合法"}
     try:
-        content = _docx_template_content(await file.read())
+        payload = await file.read()
+        content = _docx_template_content(payload)
     except ValueError as error:
         return {"code": -1, "msg": str(error)}
-    saved = db_upsert_case_transcript_template(template_key=key, name=title, transcript_type=kind, content_json=json.dumps(content, ensure_ascii=False, separators=(",", ":")), actor=str((_request_user(request) or {}).get("username", "unknown")))
+    digest = hashlib.sha256(payload).hexdigest()
+    source_name = Path(file.filename or f"{title}.docx").name
+    if not source_name.lower().endswith(".docx"):
+        return {"code": -1, "msg": "DOCX 模板文件名不合法"}
+    stored_name = f"{key}-{digest[:16]}.docx"
+    TRANSCRIPT_TEMPLATE_ROOT.mkdir(parents=True, exist_ok=True)
+    (TRANSCRIPT_TEMPLATE_ROOT / stored_name).write_bytes(payload)
+    saved = db_upsert_case_transcript_template(template_key=key, name=title, transcript_type=kind, content_json=json.dumps(content, ensure_ascii=False, separators=(",", ":")), actor=str((_request_user(request) or {}).get("username", "unknown")), source_docx_name=source_name, source_docx_path=stored_name, source_docx_sha256=digest)
     return {"code": 0, "data": saved}
 
 
@@ -3160,6 +3298,96 @@ async def get_device_cases(device_id: str = Query(...), access_key: str = Header
     return {"code": 0, "data": assignments}
 
 
+@app.get("/api/device/transcript-templates", summary="设备获取平台 DOCX 笔录模板清单", tags=["案件"])
+async def get_device_transcript_templates(device_id: str = Query(...), access_key: str = Header(..., alias="X-Device-Access-Key")):
+    device = db_get_device(device_id=device_id)
+    if not device or not device.get("enabled") or not db_verify_device_key(device_id=device_id, access_key=access_key):
+        return {"code": 403, "msg": "设备认证失败"}
+    templates = []
+    for template in db_list_case_transcript_templates():
+        source_path = _transcript_template_docx_path(template)
+        source_name = str(template.get("source_docx_name") or "")
+        digest = str(template.get("source_docx_sha256") or "")
+        if source_path and source_name and re.fullmatch(r"[0-9a-f]{64}", digest):
+            templates.append({"template_key": template["template_key"], "name": template["name"], "transcript_type": template["transcript_type"], "file_name": source_name, "sha256": digest, "updated_at": template["updated_at"]})
+    return {"code": 0, "data": templates}
+
+
+@app.get("/api/device/transcript-templates/{template_key}/download", summary="设备下载平台 DOCX 笔录模板", tags=["案件"])
+async def download_device_transcript_template(template_key: str, device_id: str = Query(...), access_key: str = Header(..., alias="X-Device-Access-Key")):
+    device = db_get_device(device_id=device_id)
+    if not device or not device.get("enabled") or not db_verify_device_key(device_id=device_id, access_key=access_key):
+        return {"code": 403, "msg": "设备认证失败"}
+    template = db_get_case_transcript_template(template_key=template_key)
+    source_path = _transcript_template_docx_path(template or {})
+    if not template or not source_path:
+        return {"code": -1, "msg": "平台 DOCX 模板不存在"}
+    return FileResponse(source_path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=str(template.get("source_docx_name") or source_path.name))
+
+
+@app.post("/api/device/cases/{case_id}/delete", summary="设备管理员删除已下发案件", tags=["案件"])
+async def post_device_delete_case(case_id: int, request: Request, access_key: str = Header(..., alias="X-Device-Access-Key")):
+    body = await request.json()
+    device_id = str(body.get("device_id") or "").strip()
+    if not device_id or not db_verify_device_key(device_id=device_id, access_key=access_key):
+        return {"code": 403, "msg": "设备认证失败"}
+    case = db_get_case(case_id=case_id)
+    if not case or not any(item["device_id"] == device_id for item in db_list_case_assignments(case_id=case_id)):
+        return {"code": -1, "msg": "案件不存在或未下发至本设备"}
+    return {"code": 0, "data": {"case_id": case_id}} if db_delete_case(case_id=case_id) else {"code": -1, "msg": "案件删除失败"}
+
+
+@app.post("/api/device/offline-cases", summary="设备上报离线办案案件", tags=["案件"])
+async def post_device_offline_case(request: Request, access_key: str = Header(..., alias="X-Device-Access-Key")):
+    body = await request.json()
+    device_id = str(body.get("device_id") or "").strip()
+    device = db_get_device(device_id=device_id)
+    if not device or not device.get("enabled") or not db_verify_device_key(device_id=device_id, access_key=access_key):
+        return {"code": 403, "msg": "设备认证失败"}
+    case_no = str(body.get("case_no") or "").strip()
+    name = str(body.get("name") or "").strip()
+    if not case_no or not name or len(case_no) > 64 or len(name) > 160 or any(part in case_no for part in ("/", "\\", "..")):
+        return {"code": -1, "msg": "离线案件编号或名称不合法"}
+    case_category = str(body.get("case_category") or "other").strip()
+    if case_category == "talk":
+        case_category = "other"
+    if case_category not in CASE_SESSION_TYPES:
+        case_category = "other"
+    case = db_get_case_by_no(case_no=case_no)
+    actor = f"device:{device_id}:offline"
+    if not case:
+        case = db_create_case(
+            case_no=case_no, name=name, case_type=str(body.get("case_type") or "other") if str(body.get("case_type") or "other") in CASE_TYPES else "other",
+            case_reference=str(body.get("case_reference") or "").strip(), case_category=case_category,
+            handling_unit=str(body.get("handling_unit") or "").strip(), case_reason=str(body.get("case_reason") or "").strip(),
+            lead_investigator=str(body.get("lead_investigator") or "").strip(), incident_at=str(body.get("incident_at") or "").strip(),
+            arrival_method=str(body.get("arrival_method") or "").strip(), interviewer_one_unit=str(body.get("interviewer_one_unit") or "").strip(),
+            interviewer_two=str(body.get("interviewer_two") or "").strip(), interviewer_two_unit=str(body.get("interviewer_two_unit") or "").strip(),
+            recorder_name=str(body.get("recorder_name") or "").strip(), subject_name=str(body.get("subject_name") or "").strip(),
+            interview_location=str(body.get("interview_location") or "").strip(), inquiry_count=max(1, min(99, int(body.get("inquiry_count") or 1))),
+            transcript_template=str(body.get("transcript_template") or "").strip(), planned_start_at=str(body.get("planned_start_at") or "").strip(),
+            planned_end_at=str(body.get("planned_end_at") or "").strip(), created_by=actor,
+        )
+        if not case:
+            return {"code": -1, "msg": "离线案件创建失败"}
+    assignment = db_assign_case_to_device(case_id=int(case["id"]), device_id=device_id, assigned_by=actor)
+    if assignment and assignment["status"] == "pending":
+        db_update_case_assignment_status(assignment_id=int(assignment["id"]), status="received", actor=actor)
+    sessions = [item for item in db_list_case_sessions(case_id=int(case["id"])) if item["device_id"] == device_id]
+    session = sessions[0] if sessions else db_create_case_session(
+        case_id=int(case["id"]), device_id=device_id, room_id=None,
+        session_no=str(body.get("session_no") or f"{case_no}-OFFLINE-1")[:128], session_type=case_category,
+        recording_mode="disk", planned_start_at=None, planned_end_at=None,
+        location=str(body.get("interview_location") or "").strip(), host_name="", participant_summary="离线办案",
+        subject_name=str(body.get("subject_name") or "").strip(),
+        interviewer_names="、".join(item for item in (str(body.get("lead_investigator") or "").strip(), str(body.get("interviewer_two") or "").strip()) if item),
+        recorder_name=str(body.get("recorder_name") or "").strip(), created_by=actor,
+    )
+    if not session:
+        return {"code": -1, "msg": "离线办案会话创建失败"}
+    return {"code": 0, "data": {"case_id": int(case["id"]), "session_id": int(session["id"]), "case_no": case["case_no"], "source": "offline"}}
+
+
 @app.get("/api/device/case-history", summary="设备获取历史下发案件", tags=["案件"])
 async def get_device_case_history(device_id: str = Query(...), access_key: str = Header(..., alias="X-Device-Access-Key")):
     device = db_get_device(device_id=device_id)
@@ -3309,7 +3537,6 @@ async def post_device_case_ack(assignment_id: int, request: Request, access_key:
 
 ARCHIVE_TYPES = {"transcript", "document", "audio", "video"}
 TRANSCRIPT_STATUSES = {"not_started", "in_progress", "closed"}
-MAX_ARCHIVE_FILE_SIZE = 200 * 1024 * 1024
 
 
 def _archive_storage_path(device_id: str, stored_name: str) -> Path:
@@ -3408,8 +3635,6 @@ async def post_archive_upload(
         with target.open("wb") as output:
             while chunk := await file.read(1024 * 1024):
                 size += len(chunk)
-                if size > MAX_ARCHIVE_FILE_SIZE:
-                    raise ValueError("单个文件不能超过 200MB")
                 output.write(chunk)
                 digest.update(chunk)
     except (OSError, ValueError) as error:

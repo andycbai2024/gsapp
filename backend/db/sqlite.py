@@ -534,6 +534,18 @@ def init_db() -> None:
                 handling_unit TEXT NOT NULL DEFAULT '',
                 case_reason TEXT NOT NULL DEFAULT '',
                 lead_investigator TEXT NOT NULL DEFAULT '',
+                incident_at TEXT NOT NULL DEFAULT '',
+                arrival_method TEXT NOT NULL DEFAULT '',
+                interviewer_one_unit TEXT NOT NULL DEFAULT '',
+                interviewer_two TEXT NOT NULL DEFAULT '',
+                interviewer_two_unit TEXT NOT NULL DEFAULT '',
+                recorder_name TEXT NOT NULL DEFAULT '',
+                subject_name TEXT NOT NULL DEFAULT '',
+                interview_location TEXT NOT NULL DEFAULT '',
+                inquiry_count INTEGER NOT NULL DEFAULT 1,
+                transcript_template TEXT NOT NULL DEFAULT '',
+                planned_start_at TEXT NOT NULL DEFAULT '',
+                planned_end_at TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL DEFAULT 'created',
                 created_by TEXT NOT NULL,
                 created_at TEXT NOT NULL,
@@ -546,6 +558,16 @@ def init_db() -> None:
             db.execute("ALTER TABLE case_info ADD COLUMN case_reference TEXT NOT NULL DEFAULT ''")
         if "case_category" not in case_columns:
             db.execute("ALTER TABLE case_info ADD COLUMN case_category TEXT NOT NULL DEFAULT ''")
+        for column, definition in {
+            "incident_at": "TEXT NOT NULL DEFAULT ''", "arrival_method": "TEXT NOT NULL DEFAULT ''",
+            "interviewer_one_unit": "TEXT NOT NULL DEFAULT ''", "interviewer_two": "TEXT NOT NULL DEFAULT ''",
+            "interviewer_two_unit": "TEXT NOT NULL DEFAULT ''", "recorder_name": "TEXT NOT NULL DEFAULT ''",
+            "subject_name": "TEXT NOT NULL DEFAULT ''", "interview_location": "TEXT NOT NULL DEFAULT ''",
+            "inquiry_count": "INTEGER NOT NULL DEFAULT 1", "transcript_template": "TEXT NOT NULL DEFAULT ''",
+            "planned_start_at": "TEXT NOT NULL DEFAULT ''", "planned_end_at": "TEXT NOT NULL DEFAULT ''",
+        }.items():
+            if column not in case_columns:
+                db.execute(f"ALTER TABLE case_info ADD COLUMN {column} {definition}")
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS case_device_assignment (
@@ -733,12 +755,22 @@ def init_db() -> None:
                 name TEXT NOT NULL,
                 transcript_type TEXT NOT NULL DEFAULT 'other',
                 content_json TEXT NOT NULL,
+                source_docx_name TEXT NOT NULL DEFAULT '',
+                source_docx_path TEXT NOT NULL DEFAULT '',
+                source_docx_sha256 TEXT NOT NULL DEFAULT '',
                 created_by TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
             """
         )
+        template_columns = {row[1] for row in db.execute("PRAGMA table_info(case_transcript_template)").fetchall()}
+        if "source_docx_name" not in template_columns:
+            db.execute("ALTER TABLE case_transcript_template ADD COLUMN source_docx_name TEXT NOT NULL DEFAULT ''")
+        if "source_docx_path" not in template_columns:
+            db.execute("ALTER TABLE case_transcript_template ADD COLUMN source_docx_path TEXT NOT NULL DEFAULT ''")
+        if "source_docx_sha256" not in template_columns:
+            db.execute("ALTER TABLE case_transcript_template ADD COLUMN source_docx_sha256 TEXT NOT NULL DEFAULT ''")
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS case_transcript_version (
@@ -2000,24 +2032,36 @@ def _case_query() -> str:
               LEFT JOIN device d ON d.device_id=a.device_id"""
 
 
-def create_case(*, case_no: str, name: str, case_type: str, handling_unit: str, case_reference: str = "", case_category: str = "", case_reason: str = "", lead_investigator: str = "", created_by: str) -> dict[str, Any] | None:
+def create_case(*, case_no: str, name: str, case_type: str, handling_unit: str, case_reference: str = "", case_category: str = "", case_reason: str = "", lead_investigator: str = "", incident_at: str = "", arrival_method: str = "", interviewer_one_unit: str = "", interviewer_two: str = "", interviewer_two_unit: str = "", recorder_name: str = "", subject_name: str = "", interview_location: str = "", inquiry_count: int = 1, transcript_template: str = "", planned_start_at: str = "", planned_end_at: str = "", created_by: str) -> dict[str, Any] | None:
     now = _utc_now_iso()
     with get_db() as db:
         try:
             cur = db.execute(
-                     """INSERT INTO case_info (case_no, name, case_type, case_reference, case_category, handling_unit, case_reason, lead_investigator, status, created_by, created_at, updated_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'created', ?, ?, ?)""",
-                     (case_no, name, case_type, case_reference, case_category, handling_unit, case_reason, lead_investigator, created_by, now, now),
+                     """INSERT INTO case_info (case_no, name, case_type, case_reference, case_category, handling_unit, case_reason, lead_investigator, incident_at, arrival_method, interviewer_one_unit, interviewer_two, interviewer_two_unit, recorder_name, subject_name, interview_location, inquiry_count, transcript_template, planned_start_at, planned_end_at, status, created_by, created_at, updated_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'created', ?, ?, ?)""",
+                     (case_no, name, case_type, case_reference, case_category, handling_unit, case_reason, lead_investigator, incident_at, arrival_method, interviewer_one_unit, interviewer_two, interviewer_two_unit, recorder_name, subject_name, interview_location, inquiry_count, transcript_template, planned_start_at, planned_end_at, created_by, now, now),
             )
         except sqlite3.IntegrityError:
             return None
-        _add_case_audit(db=db, case_id=int(cur.lastrowid), action="case.created", actor=created_by, detail={"case_no": case_no, "case_type": case_type, "case_reference": case_reference, "case_category": case_category, "lead_investigator": lead_investigator})
+        _add_case_audit(db=db, case_id=int(cur.lastrowid), action="case.created", actor=created_by, detail={"case_no": case_no, "case_type": case_type, "case_reference": case_reference, "case_category": case_category, "lead_investigator": lead_investigator, "subject_name": subject_name, "planned_start_at": planned_start_at})
     return get_case(case_id=int(cur.lastrowid))
 
 
 def get_case(*, case_id: int) -> dict[str, Any] | None:
     with get_db() as db:
         row = db.execute(f"{_case_query()} WHERE c.id=? GROUP BY c.id", (case_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def delete_case(*, case_id: int) -> int:
+    with get_db() as db:
+        cur = db.execute("DELETE FROM case_info WHERE id=?", (case_id,))
+    return int(cur.rowcount or 0)
+
+
+def get_case_by_no(*, case_no: str) -> dict[str, Any] | None:
+    with get_db() as db:
+        row = db.execute(f"{_case_query()} WHERE c.case_no=? GROUP BY c.id", (case_no,)).fetchone()
     return dict(row) if row else None
 
 
@@ -2056,7 +2100,7 @@ def assign_case_to_device(*, case_id: int, device_id: str, assigned_by: str) -> 
         )
         _add_case_audit(db=db, case_id=case_id, action="assignment.dispatched", actor=assigned_by, detail={"device_id": device_id, "redispatched": previous is not None, "previous_status": previous["status"] if previous else None, "previous_acknowledged_at": previous["acknowledged_at"] if previous else None})
         row = db.execute(
-            """SELECT a.*, d.name AS device_name, c.case_no, c.name AS case_name, c.case_type, c.handling_unit, c.status AS case_status
+            """SELECT a.*, d.name AS device_name, c.case_no, c.name AS case_name, c.case_type, c.handling_unit, c.case_reference, c.case_category, c.case_reason, c.lead_investigator, c.incident_at, c.arrival_method, c.interviewer_one_unit, c.interviewer_two, c.interviewer_two_unit, c.recorder_name, c.subject_name, c.interview_location, c.inquiry_count, c.transcript_template, c.planned_start_at, c.planned_end_at, c.status AS case_status
                FROM case_device_assignment a JOIN device d ON d.device_id=a.device_id
                JOIN case_info c ON c.id=a.case_id WHERE a.case_id=? AND a.device_id=?""",
             (case_id, device_id),
@@ -2065,7 +2109,7 @@ def assign_case_to_device(*, case_id: int, device_id: str, assigned_by: str) -> 
 
 
 def list_case_assignments(*, case_id: int | None = None, device_id: str | None = None) -> list[dict[str, Any]]:
-    sql = """SELECT a.*, d.name AS device_name, c.case_no, c.name AS case_name, c.case_type, c.handling_unit, c.status AS case_status
+    sql = """SELECT a.*, d.name AS device_name, c.case_no, c.name AS case_name, c.case_type, c.handling_unit, c.case_reference, c.case_category, c.case_reason, c.lead_investigator, c.incident_at, c.arrival_method, c.interviewer_one_unit, c.interviewer_two, c.interviewer_two_unit, c.recorder_name, c.subject_name, c.interview_location, c.inquiry_count, c.transcript_template, c.planned_start_at, c.planned_end_at, c.status AS case_status
              FROM case_device_assignment a JOIN device d ON d.device_id=a.device_id
              JOIN case_info c ON c.id=a.case_id"""
     where: list[str] = []
@@ -2191,6 +2235,18 @@ def update_case_session_status(*, session_id: int, status: str, actor: str, occu
         values.append(session_id)
         db.execute(f"UPDATE case_session SET {', '.join(fields)} WHERE id=?", values)
         _add_case_audit(db=db, case_id=int(session["case_id"]), session_id=session_id, action="session.status", actor=actor, detail={"status": status})
+    return get_case_session(session_id=session_id)
+
+
+def reschedule_case_session(*, session_id: int, planned_start_at: str, planned_end_at: str, actor: str) -> dict[str, Any] | None:
+    now = _utc_now_iso()
+    with get_db() as db:
+        session = db.execute("SELECT case_id, status, planned_start_at, planned_end_at FROM case_session WHERE id=?", (session_id,)).fetchone()
+        if not session or session["status"] != "planned":
+            return None
+        db.execute("UPDATE case_session SET planned_start_at=?, planned_end_at=?, updated_at=? WHERE id=?", (planned_start_at, planned_end_at, now, session_id))
+        db.execute("UPDATE case_device_command SET status='cancelled', error_message='已重新排期', completed_at=?, updated_at=? WHERE session_id=? AND status='queued'", (now, now, session_id))
+        _add_case_audit(db=db, case_id=int(session["case_id"]), session_id=session_id, action="session.rescheduled", actor=actor, detail={"previous_start_at": session["planned_start_at"], "previous_end_at": session["planned_end_at"], "planned_start_at": planned_start_at, "planned_end_at": planned_end_at})
     return get_case_session(session_id=session_id)
 
 
@@ -2498,20 +2554,25 @@ def list_case_transcript_templates() -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
-def upsert_case_transcript_template(*, template_key: str, name: str, transcript_type: str, content_json: str, actor: str) -> dict[str, Any]:
+def upsert_case_transcript_template(*, template_key: str, name: str, transcript_type: str, content_json: str, actor: str, source_docx_name: str = "", source_docx_path: str = "", source_docx_sha256: str = "") -> dict[str, Any]:
     now = _utc_now_iso()
     with get_db() as db:
         existing = db.execute("SELECT id FROM case_transcript_template WHERE template_key=?", (template_key,)).fetchone()
         if existing:
             db.execute(
-                "UPDATE case_transcript_template SET name=?, transcript_type=?, content_json=?, updated_at=? WHERE template_key=?",
-                (name, transcript_type, content_json, now, template_key),
+                """UPDATE case_transcript_template
+                   SET name=?, transcript_type=?, content_json=?,
+                       source_docx_name=CASE WHEN ?='' THEN source_docx_name ELSE ? END,
+                       source_docx_path=CASE WHEN ?='' THEN source_docx_path ELSE ? END,
+                       source_docx_sha256=CASE WHEN ?='' THEN source_docx_sha256 ELSE ? END,
+                       updated_at=? WHERE template_key=?""",
+                (name, transcript_type, content_json, source_docx_name, source_docx_name, source_docx_path, source_docx_path, source_docx_sha256, source_docx_sha256, now, template_key),
             )
         else:
             db.execute(
-                """INSERT INTO case_transcript_template (template_key, name, transcript_type, content_json, created_by, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (template_key, name, transcript_type, content_json, actor, now, now),
+                     """INSERT INTO case_transcript_template (template_key, name, transcript_type, content_json, source_docx_name, source_docx_path, source_docx_sha256, created_by, created_at, updated_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     (template_key, name, transcript_type, content_json, source_docx_name, source_docx_path, source_docx_sha256, actor, now, now),
             )
     return get_case_transcript_template(template_key=template_key) or {}
 

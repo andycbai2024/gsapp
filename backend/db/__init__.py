@@ -101,7 +101,9 @@ from .sqlite import list_archive_folders
 from .sqlite import update_archive_file
 from .sqlite import assign_case_to_device
 from .sqlite import create_case
+from .sqlite import delete_case
 from .sqlite import get_case
+from .sqlite import get_case_by_no
 from .sqlite import get_case_assignment
 from .sqlite import list_case_assignments
 from .sqlite import list_cases
@@ -110,6 +112,7 @@ from .sqlite import archive_is_immutable
 from .sqlite import add_case_transcript_version
 from .sqlite import create_case_media_asset
 from .sqlite import create_case_session
+from .sqlite import reschedule_case_session
 from .sqlite import create_case_transcript
 from .sqlite import finalize_case_transcript
 from .sqlite import get_case_session
