@@ -228,6 +228,7 @@ ONLYOFFICE_PLATFORM_URL = os.getenv("ONLYOFFICE_PLATFORM_URL", "http://streamui-
 ONLYOFFICE_JWT_SECRET = os.getenv("ONLYOFFICE_JWT_SECRET", "")
 ONLYOFFICE_CALLBACK_HOSTS = {item.strip().lower() for item in os.getenv("ONLYOFFICE_CALLBACK_HOSTS", "onlyoffice-document-server").split(",") if item.strip()}
 ENABLE_ONLYOFFICE = False
+ENABLE_PLATFORM_TIPTAP = False
 # 容器
 ZLM_CONTAINER_NAME = os.getenv("ZLM_CONTAINER_NAME", "zlm-server")
 STREAMUI_CONTAINER_NAME = os.getenv("STREAMUI_CONTAINER_NAME", "streamui-web-server")
@@ -2900,6 +2901,8 @@ async def get_session_transcripts(session_id: int):
 async def post_case_transcript(session_id: int, request: Request):
     if not _can_manage(request):
         return {"code": 403, "msg": "需要管理员或操作员权限"}
+    if not ENABLE_PLATFORM_TIPTAP:
+        return {"code": -1, "msg": "平台网页笔录已停用，请在办案设备端创建和完成笔录"}
     body = await request.json()
     title = str(body.get("title") or "").strip()
     transcript_type = str(body.get("transcript_type") or "interrogation").strip()
@@ -2927,6 +2930,8 @@ async def post_case_transcript(session_id: int, request: Request):
 
 @app.get("/api/transcript-templates", summary="获取在线笔录模板", tags=["案件"])
 async def get_transcript_templates():
+    if not ENABLE_PLATFORM_TIPTAP:
+        return {"code": -1, "msg": "平台网页笔录已停用，请使用设备端笔录模板"}
     return {"code": 0, "data": _transcript_template_options()}
 
 
@@ -2943,6 +2948,8 @@ async def get_transcript_template_preview(template_key: str):
 async def post_transcript_template(request: Request):
     if not _is_admin(request):
         return {"code": 403, "msg": "仅管理员可导入笔录模板"}
+    if not ENABLE_PLATFORM_TIPTAP:
+        return {"code": -1, "msg": "平台 JSON 笔录模板已停用，请在设备端管理 DOCX 模板"}
     body = await request.json()
     template_key = str(body.get("template_key") or "").strip()
     name = str(body.get("name") or "").strip()
