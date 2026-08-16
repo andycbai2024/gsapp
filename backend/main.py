@@ -643,7 +643,7 @@ def _parse_planned_time(value: object) -> str | None:
     except ValueError:
         return None
     if planned.tzinfo is None:
-        planned = planned.replace(tzinfo=timezone.utc)
+        planned = planned.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
     return planned.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
@@ -757,7 +757,7 @@ async def sync_platform_case_recordings() -> None:
                     break
 
 
-async def _lm700_recording_busy(url: str) -> bool | None:
+async def _lm700_recording_state(url: str) -> dict[str, bool] | None:
     payload = {
         "restfulApi": "WebAjax",
         "tokenKey": secrets.token_hex(16),
@@ -772,9 +772,32 @@ async def _lm700_recording_busy(url: str) -> bool | None:
         values = result.get("returnData") if int(result.get("returnVal", -1)) == 0 else None
         if not isinstance(values, dict):
             return None
-        return int(values.get("recordAction") or 0) != 0 or int(values.get("cdrWorkAction") or 0) != 0
+        return {
+            "recording": int(values.get("recordAction") or 0) not in {0, 6},
+            "burning": int(values.get("cdrWorkAction") or 0) not in {0, 5},
+        }
     except (httpx.HTTPError, ValueError, TypeError):
         return None
+
+
+async def _lm700_stop_current_recording(url: str) -> tuple[bool, str]:
+    payload = {
+        "restfulApi": "WebAjax",
+        "tokenKey": secrets.token_hex(16),
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        "authKey": LM700_AUTH_KEY,
+        "interface": {"action": "recordCease", "matcher": "devControl", "data": {}},
+    }
+    try:
+        response = await client.post(url, json=payload)
+        response.raise_for_status()
+        result = response.json()
+    except (httpx.HTTPError, ValueError) as error:
+        return False, f"停止设备当前录像失败：{error}"
+    if int(result.get("returnVal", -1)) != 0:
+        message = str((result.get("returnData") or {}).get("errMsg") or result.get("returnMsg") or "设备拒绝停止当前录像")
+        return False, f"停止设备当前录像失败：{message}"
+    return True, ""
 
 
 async def _execute_case_device_command(command: dict) -> None:
@@ -791,13 +814,22 @@ async def _execute_case_device_command(command: dict) -> None:
         db_finish_case_device_command(command_id=int(command["id"]), status="failed", request_data={}, response_data={}, error_message="设备未启用或未配置有效控制地址")
         return
     if action == "start":
-        busy = await _lm700_recording_busy(url)
-        if busy is None:
+        state = await _lm700_recording_state(url)
+        if state is None:
             db_finish_case_device_command(command_id=int(command["id"]), status="failed", request_data={}, response_data={}, error_message="无法确认设备录像或刻录状态")
             return
-        if busy:
-            db_finish_case_device_command(command_id=int(command["id"]), status="failed", request_data={}, response_data={}, error_message="设备正在录像或刻录，不能启动并行办案会话")
+        if state["burning"]:
+            db_finish_case_device_command(command_id=int(command["id"]), status="failed", request_data={}, response_data={}, error_message="设备正在进行光盘刻录，不能自动中断后启动办案会话")
             return
+        if state["recording"]:
+            stopped, message = await _lm700_stop_current_recording(url)
+            if not stopped:
+                db_finish_case_device_command(command_id=int(command["id"]), status="failed", request_data={}, response_data={}, error_message=message)
+                return
+            state = await _lm700_recording_state(url)
+            if state is None or state["recording"] or state["burning"]:
+                db_finish_case_device_command(command_id=int(command["id"]), status="failed", request_data={}, response_data={}, error_message="设备当前录像未停止，不能启动办案会话")
+                return
     action_map = {
         "start": "cdrWorkStart" if recording_mode == "sync_burn" else "recordStart",
         "stop": "cdrWorkCease" if recording_mode == "sync_burn" else "recordCease",
