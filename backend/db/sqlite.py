@@ -1981,7 +1981,7 @@ def list_archive_files(*, device_id: str | None = None) -> list[dict[str, Any]]:
 
 def list_case_archive_files(*, case_id: int) -> list[dict[str, Any]]:
     with get_db() as db:
-        rows = db.execute(f"{_archive_file_query()} WHERE f.case_id=? ORDER BY f.created_at ASC, f.id ASC", (case_id,)).fetchall()
+        rows = db.execute(f"{_archive_file_query()} WHERE f.case_id=? ORDER BY f.created_at DESC, f.id DESC", (case_id,)).fetchall()
     return [dict(row) for row in rows]
 
 

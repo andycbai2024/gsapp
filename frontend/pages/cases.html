@@ -161,7 +161,7 @@ layui.use(['table', 'layer', 'form', 'element', 'jquery'], function () {
     const keyword = $('#ID_case_keyword').val().trim().toLowerCase();
     const status = $('#ID_case_status_filter').val();
     const flowStatus = { ready:'assigned', handling:'handling', closed:'closed', archived:'archived' }[activeFlow];
-    const visible = rows.filter(row => (!keyword || `${row.case_no} ${row.name} ${row.handling_unit}`.toLowerCase().includes(keyword)) && (!status || row.status === status) && (!flowStatus || row.status === flowStatus));
+    const visible = rows.filter(row => (!keyword || `${row.case_no} ${row.name} ${row.handling_unit}`.toLowerCase().includes(keyword)) && (!status || row.status === status) && (!flowStatus || row.status === flowStatus)).sort((left, right) => new Date(right.updated_at || right.created_at || 0) - new Date(left.updated_at || left.created_at || 0));
     table.render({ elem:'#ID_case_table', data:visible, page:true, limit:10, cols:[[
       {field:'case_no', title:'案件编号', minWidth:180}, {field:'name', title:'案件名称', minWidth:200},
       {field:'case_type', title:'类型', width:100, templet:row => caseTypes[row.case_type] || row.case_type}, {field:'handling_unit', title:'承办单位', minWidth:150},
@@ -198,12 +198,13 @@ layui.use(['table', 'layer', 'form', 'element', 'jquery'], function () {
     const assignmentAccepted = assignments.some(item => item.status !== 'pending');
     const hasScheduledSession = sessions.some(item => item.status === 'planned');
     const hasActiveSession = sessions.some(item => item.status === 'active');
+    const hasEndedSession = sessions.some(item => ['finalizing', 'ended'].includes(item.status));
     const stepClass = (done, current) => done ? 'done' : current ? 'current' : '';
     const steps = [
       ['案件录入', true, false],
       ['设备就绪', assignmentAccepted, info.status === 'created'],
-      ['案件排期', hasScheduledSession || hasActiveSession, assignmentAccepted && !hasScheduledSession && !hasActiveSession],
-      ['设备办理', hasActiveSession, hasScheduledSession]
+      ['案件排期', hasScheduledSession || hasActiveSession || hasEndedSession, assignmentAccepted && !hasScheduledSession && !hasActiveSession && !hasEndedSession],
+      ['设备办理', hasEndedSession, hasActiveSession || hasScheduledSession]
     ].map((step, index) => `<div class="case-workflow-step ${stepClass(step[1], step[2])}"><span>${index + 1}</span><b>${step[0]}</b></div>`).join('');
     const actions = [];
     if (info.status === 'created') actions.push('<button type="button" class="layui-btn layui-btn-sm" id="ID_case_assign_device">下发设备</button>');
@@ -234,7 +235,7 @@ layui.use(['table', 'layer', 'form', 'element', 'jquery'], function () {
         {field:'media_type', title:'类型', width:80, templet:r => r.media_type === 'video' ? '录像' : '录音'}, {field:'session_no', title:'所属会话', minWidth:170}, {field:'original_name', title:'材料文件', minWidth:170}, {field:'source_stream', title:'来源流', minWidth:180}, {field:'started_at', title:'开始时间', minWidth:170}, {field:'ended_at', title:'结束时间', minWidth:170}, {field:'integrity_status', title:'完整性', width:90}, {field:'sha256', title:'SHA-256', minWidth:180}
       ]] });
       table.render({ elem:'#ID_case_detail_archives', data:archives, page:true, limit:8, height:260, cols:[[
-        {field:'archive_type', title:'资料类型', width:100, templet:r => ({transcript:'笔录版本',video:'录像',audio:'录音',document:'附件'}[r.archive_type] || r.archive_type)}, {field:'original_name', title:'归档文件', minWidth:230}, {field:'session_no', title:'所属会话', minWidth:170}, {field:'created_at', title:'归档时间', minWidth:170}, {field:'sha256', title:'SHA-256', minWidth:200}, {title:'操作', width:150, templet:r => /\.(pdf|html?|mp4|webm|mov|ogg)$/i.test(r.original_name || '') ? `<button class="layui-btn layui-btn-xs layui-btn-primary case-archive-preview" data-id="${r.id}">预览</button> <a class="layui-btn layui-btn-xs" href="/api/archives/${r.id}/download" target="_blank">下载</a>` : `<a class="layui-btn layui-btn-xs" href="/api/archives/${r.id}/download" target="_blank">下载</a>`}
+        {field:'archive_type', title:'资料类型', width:100, templet:r => ({transcript:'笔录版本',video:'录像',audio:'录音',document:'附件'}[r.archive_type] || r.archive_type)}, {title:'归档材料', minWidth:250, templet:r => `${escapeHtml(r.title || '未命名归档')}<br><span class="layui-font-gray">${escapeHtml(r.original_name || '-')}</span>`}, {field:'session_no', title:'所属会话', minWidth:170}, {field:'created_at', title:'归档时间', minWidth:170}, {field:'sha256', title:'SHA-256', minWidth:200}, {title:'操作', width:150, templet:r => /\.(pdf|html?|mp4|webm|mov|ogg)$/i.test(r.original_name || '') ? `<button class="layui-btn layui-btn-xs layui-btn-primary case-archive-preview" data-id="${r.id}">预览</button> <a class="layui-btn layui-btn-xs" href="/api/archives/${r.id}/download" target="_blank">下载</a>` : `<a class="layui-btn layui-btn-xs" href="/api/archives/${r.id}/download" target="_blank">下载</a>`}
       ]] });
       const discRows = (detail.sessions || []).filter(session => detail.disc_evidence && detail.disc_evidence[String(session.id)]).map(session => Object.assign({session_no:session.session_no}, detail.disc_evidence[String(session.id)]));
       table.render({ elem:'#ID_case_detail_disc', data:discRows, height:260, cols:[[

@@ -391,8 +391,70 @@
           layer.open({ type: 1, title: forceChange ? "请先修改初始密码" : "修改密码", area: ["480px", "auto"], closeBtn: forceChange ? 0 : 1, content: '<form class="layui-form" style="padding:18px"><div class="layui-form-item"><label class="layui-form-label">当前密码</label><div class="layui-input-block"><input id="ID_current_password" type="password" class="layui-input"></div></div><div class="layui-form-item"><label class="layui-form-label">新密码</label><div class="layui-input-block"><input id="ID_new_password" type="password" class="layui-input" placeholder="至少 8 位"></div></div><div class="layui-form-item"><div class="layui-input-block"><button type="button" id="ID_save_password" class="layui-btn">保存</button></div></div></form>', success: function (layerElement, index) { $("#ID_save_password").on("click", function () { $.ajax({ url: "/api/auth/password", type: "POST", contentType: "application/json", data: JSON.stringify({ current_password: $("#ID_current_password").val(), new_password: $("#ID_new_password").val() }), success: function (res) { if (res.code === 0) { layer.close(index); layer.msg("密码已修改"); } else layer.msg(res.msg || "修改失败"); }, error: function (xhr) { layer.msg((xhr.responseJSON && xhr.responseJSON.msg) || "请求失败"); } }); }); } });
         }
 
+        let scheduleReminderTimer = null;
+        let scheduleReminderLastShownAt = 0;
+        let scheduleReminderLayerIndex = null;
+
+        function escapeScheduleReminderHtml(value) {
+          return $("<div>").text(value || "-").html();
+        }
+
+        function findUpcomingSessions(sessions) {
+          const now = Date.now();
+          const windowEnd = now + 30 * 60 * 1000;
+          return (sessions || []).filter(function (session) {
+            const startsAt = new Date(session.planned_start_at || "").getTime();
+            return session.status === "planned" && !Number.isNaN(startsAt) && startsAt >= now && startsAt <= windowEnd;
+          }).sort(function (left, right) {
+            return new Date(left.planned_start_at).getTime() - new Date(right.planned_start_at).getTime();
+          });
+        }
+
+        function showScheduleReminder(sessions) {
+          const now = Date.now();
+          if (now - scheduleReminderLastShownAt < 5 * 60 * 1000) return;
+          scheduleReminderLastShownAt = now;
+          if (scheduleReminderLayerIndex !== null) layer.close(scheduleReminderLayerIndex);
+          const content = '<div style="padding:14px 16px;line-height:1.7">'
+            + '<div style="margin-bottom:8px;color:#ff9800;font-weight:600">未来 30 分钟内有 ' + sessions.length + ' 场办案即将开始</div>'
+            + sessions.map(function (session) {
+              const minutes = Math.max(0, Math.ceil((new Date(session.planned_start_at).getTime() - now) / 60000));
+              const title = (session.case_no || '未编号案件') + ' · ' + (session.case_name || session.session_no || '办案会话');
+              const location = session.room_name || session.device_name || '未分配场所';
+              return '<div style="padding:8px 0;border-top:1px solid #edf0f2"><b>' + escapeScheduleReminderHtml(title) + '</b><br><span style="color:#6b7785">' + escapeScheduleReminderHtml(String(session.planned_start_at || '').replace('T', ' ').slice(0, 16)) + '，' + minutes + ' 分钟后开始 · ' + escapeScheduleReminderHtml(location) + '</span></div>';
+            }).join('') + '</div>';
+          scheduleReminderLayerIndex = layer.open({
+            type: 1,
+            title: '办案排期提醒',
+            area: ['440px', 'auto'],
+            offset: 'rb',
+            shade: 0,
+            resize: false,
+            btn: ['查看案件', '知道了'],
+            content: content,
+            yes: function (index) { layer.close(index); scheduleReminderLayerIndex = null; loadPage('./pages/cases.html'); },
+            btn2: function () { scheduleReminderLayerIndex = null; },
+            end: function () { scheduleReminderLayerIndex = null; }
+          });
+        }
+
+        function checkScheduleReminders() {
+          $.get('/api/cases/workflow/dashboard').done(function (response) {
+            if (!response || response.code !== 0) return;
+            const upcoming = findUpcomingSessions((response.data || {}).scheduled_sessions);
+            if (upcoming.length) showScheduleReminder(upcoming);
+          });
+        }
+
+        function startScheduleReminders() {
+          if (scheduleReminderTimer) return;
+          checkScheduleReminders();
+          scheduleReminderTimer = window.setInterval(checkScheduleReminders, 60 * 1000);
+        }
+
         $.get("/api/auth/me").done(function (res) {
           if (!res || res.code !== 0 || !res.data) {
+          startScheduleReminders();
             window.location.replace(`login.html?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`);
             return;
           }

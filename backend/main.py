@@ -2825,6 +2825,11 @@ async def post_case_session_command(session_id: int, request: Request):
         return {"code": -1, "msg": "办案会话或命令无效"}
     if (action == "start" and session["status"] != "planned") or (action == "stop" and session["status"] != "active"):
         return {"code": -1, "msg": "当前会话状态不允许执行该命令"}
+    now = _now_iso()
+    if action == "start" and session.get("planned_start_at") and now < session["planned_start_at"]:
+        return {"code": -1, "msg": "未到计划开始时间，不能提前启动办案会话"}
+    if action == "start" and session.get("planned_end_at") and now >= session["planned_end_at"]:
+        return {"code": -1, "msg": "已超过计划结束时间，请重新排期后再启动办案会话"}
     command = db_create_case_device_command(session_id=session_id, action=action, scheduled_at=_now_iso(), idempotency_key=f"session:{session_id}:{action}", created_by=str((_request_user(request) or {}).get("username", "unknown")))
     return {"code": 0, "data": command} if command else {"code": -1, "msg": "命令创建失败"}
 
@@ -2880,6 +2885,11 @@ async def post_device_case_session_status(session_id: int, request: Request, acc
     assignment = next((item for item in db_list_case_assignments(case_id=int(session["case_id"])) if item["device_id"] == device_id), None)
     if not assignment or assignment["status"] not in {"received", "handling"}:
         return {"code": -1, "msg": "设备未处于可办案状态"}
+    now = _now_iso()
+    if status == "active" and session.get("planned_start_at") and now < session["planned_start_at"]:
+        return {"code": -1, "msg": "未到计划开始时间，设备不能启动办案会话"}
+    if status == "active" and session.get("planned_end_at") and now >= session["planned_end_at"]:
+        return {"code": -1, "msg": "已超过计划结束时间，请由平台重新排期"}
     if status == "active" and assignment["status"] == "received":
         db_update_case_assignment_status(assignment_id=int(assignment["id"]), status="handling", actor=f"device:{device_id}")
     actor = f"device:{device_id}"
@@ -3405,8 +3415,19 @@ async def get_device_case_history(device_id: str = Query(...), access_key: str =
         device_sessions = [item for item in db_list_case_sessions(case_id=int(assignment["case_id"])) if item["device_id"] == device_id]
         assignment["session_count"] = len(device_sessions)
         if device_sessions:
-            assignment["latest_session_no"] = device_sessions[0]["session_no"]
-            assignment["latest_session_status"] = device_sessions[0]["status"]
+            latest_session = device_sessions[0]
+            assignment["latest_session_no"] = latest_session["session_no"]
+            assignment["latest_session_status"] = latest_session["status"]
+            assignment["latest_session_type"] = latest_session["session_type"]
+            assignment["latest_recording_mode"] = latest_session["recording_mode"]
+            assignment["latest_session_started_at"] = latest_session.get("started_at")
+            assignment["latest_session_ended_at"] = latest_session.get("ended_at")
+            assignment["latest_planned_start_at"] = latest_session.get("planned_start_at")
+            assignment["latest_planned_end_at"] = latest_session.get("planned_end_at")
+            assignment["latest_session_location"] = latest_session.get("location")
+            assignment["latest_subject_name"] = latest_session.get("subject_name")
+            assignment["latest_interviewer_names"] = latest_session.get("interviewer_names")
+            assignment["latest_recorder_name"] = latest_session.get("recorder_name")
     return {"code": 0, "data": assignments}
 
 
