@@ -155,7 +155,6 @@ from db import archive_is_immutable as db_archive_is_immutable
 from db import add_case_transcript_version as db_add_case_transcript_version
 from db import create_case_media_asset as db_create_case_media_asset
 from db import create_case_session as db_create_case_session
-from db import reschedule_case_session as db_reschedule_case_session
 from db import create_case_transcript as db_create_case_transcript
 from db import finalize_case_transcript as db_finalize_case_transcript
 from db import get_case_session as db_get_case_session
@@ -804,6 +803,10 @@ async def _execute_case_device_command(command: dict) -> None:
     session_id = int(command["session_id"])
     action = str(command["action"])
     recording_mode = str(command["recording_mode"])
+    legacy_schedule_at = command.get("planned_start_at") if action == "start" else command.get("planned_end_at") if action == "stop" else None
+    if legacy_schedule_at and str(command.get("scheduled_at") or "") == str(legacy_schedule_at):
+        db_finish_case_device_command(command_id=int(command["id"]), status="skipped", request_data={}, response_data={}, error_message="平台已切换为人工办案，会话定时命令已停用")
+        return
     expected_status = {"start": "planned", "stop": "active", "verify_begin": "finalizing", "verify_status": "finalizing"}.get(action)
     if expected_status and command.get("session_status") != expected_status:
         db_finish_case_device_command(command_id=int(command["id"]), status="skipped", request_data={}, response_data={}, error_message="会话状态已变化，跳过过期命令")
@@ -2765,6 +2768,39 @@ async def download_case_archive_package(case_id: int, request: Request):
     return FileResponse(package_path, media_type="application/zip", filename=f"{safe_case_no}-归档资料.zip", background=BackgroundTask(package_path.unlink, missing_ok=True))
 
 
+@app.get("/api/cases/{case_id}/sessions/{session_id}/archive-package", summary="下载单次办案归档包", tags=["案件"])
+async def download_case_session_archive_package(case_id: int, session_id: int, request: Request):
+    if not _can_manage(request):
+        return {"code": 403, "msg": "需要管理员或操作员权限"}
+    case = db_get_case(case_id=case_id)
+    session = db_get_case_session(session_id=session_id)
+    if not case or not session or int(session["case_id"]) != case_id:
+        return {"code": -1, "msg": "案件或办案会话不存在"}
+    archives = [item for item in db_list_case_archive_files(case_id=case_id) if int(item.get("session_id") or 0) == session_id]
+    handle, temporary_name = tempfile.mkstemp(prefix=f"case-{case_id}-session-{session_id}-", suffix=".zip")
+    os.close(handle)
+    package_path = Path(temporary_name)
+    try:
+        manifest = {"case_no": case["case_no"], "case_name": case["name"], "session_no": session["session_no"], "generated_at": _now_iso(), "files": []}
+        with zipfile.ZipFile(package_path, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as package:
+            for archive in archives:
+                try:
+                    source = _archive_storage_path(str(archive["device_id"]), str(archive["stored_name"]))
+                except ValueError:
+                    continue
+                if not source.is_file():
+                    continue
+                archive_name = f"{session['session_no']}/{Path(str(archive['original_name'])).name}"
+                package.write(source, archive_name)
+                manifest["files"].append({"archive_id": archive["id"], "path": archive_name, "type": archive["archive_type"], "sha256": archive["sha256"], "size": archive["file_size"], "created_at": archive["created_at"]})
+            package.writestr("归档清单.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+    except OSError:
+        package_path.unlink(missing_ok=True)
+        return {"code": -1, "msg": "本次办案归档包生成失败"}
+    safe_session_no = re.sub(r"[^A-Za-z0-9_-]+", "_", str(session["session_no"])) or f"session_{session_id}"
+    return FileResponse(package_path, media_type="application/zip", filename=f"{safe_session_no}-办案材料.zip", background=BackgroundTask(package_path.unlink, missing_ok=True))
+
+
 @app.get("/api/cases/{case_id}/audit-logs", summary="获取案件审计记录", tags=["案件"])
 async def get_case_audit_logs(case_id: int):
     if not db_get_case(case_id=case_id):
@@ -2819,8 +2855,8 @@ async def post_case_session(case_id: int, request: Request):
         return {"code": -1, "msg": "谈话房间信息不合法"}
     session_type = str(body.get("session_type") or "interrogation").strip()
     recording_mode = str(body.get("recording_mode") or "disk").strip()
-    planned_start_at = _parse_planned_time(body.get("planned_start_at"))
-    planned_end_at = _parse_planned_time(body.get("planned_end_at"))
+    planned_start_at = None
+    planned_end_at = None
     session_no = str(body.get("session_no") or "").strip() or f"{case['case_no']}-S-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2).upper()}"
     location = str(body.get("location") or "").strip()
     host_name = str(body.get("host_name") or "").strip()
@@ -2828,7 +2864,7 @@ async def post_case_session(case_id: int, request: Request):
     subject_name = str(body.get("subject_name") or "").strip()
     interviewer_names = str(body.get("interviewer_names") or "").strip()
     recorder_name = str(body.get("recorder_name") or "").strip()
-    if session_type not in CASE_SESSION_TYPES or recording_mode not in CASE_RECORDING_MODES or (body.get("planned_start_at") and not planned_start_at) or (body.get("planned_end_at") and not planned_end_at) or (planned_start_at and not planned_end_at) or (planned_end_at and (not planned_start_at or planned_end_at <= planned_start_at)) or len(session_no) > 96 or len(location) > 160 or len(host_name) > 80 or len(participant_summary) > 1000 or len(subject_name) > 160 or len(interviewer_names) > 500 or len(recorder_name) > 80:
+    if session_type not in CASE_SESSION_TYPES or recording_mode not in CASE_RECORDING_MODES or len(session_no) > 96 or len(location) > 160 or len(host_name) > 80 or len(participant_summary) > 1000 or len(subject_name) > 160 or len(interviewer_names) > 500 or len(recorder_name) > 80:
         return {"code": -1, "msg": "会话信息不合法"}
     if not db_get_device(device_id=device_id) or not any(item["device_id"] == device_id and item["status"] in {"received", "handling"} for item in db_list_case_assignments(case_id=case_id)):
         return {"code": -1, "msg": "设备尚未接收案件或已完成，不能创建办案会话"}
@@ -2840,9 +2876,6 @@ async def post_case_session(case_id: int, request: Request):
             location = str(room.get("location") or room["name"])
     actor = str((_request_user(request) or {}).get("username", "unknown"))
     created = db_create_case_session(case_id=case_id, device_id=device_id, room_id=room_id, session_no=session_no, session_type=session_type, recording_mode=recording_mode, planned_start_at=planned_start_at, planned_end_at=planned_end_at, location=location, host_name=host_name, participant_summary=participant_summary, subject_name=subject_name, interviewer_names=interviewer_names, recorder_name=recorder_name, created_by=actor)
-    if created and planned_start_at:
-        db_create_case_device_command(session_id=int(created["id"]), action="start", scheduled_at=planned_start_at, idempotency_key=f"session:{created['id']}:start", created_by=actor)
-        db_create_case_device_command(session_id=int(created["id"]), action="stop", scheduled_at=str(planned_end_at), idempotency_key=f"session:{created['id']}:stop", created_by=actor)
     return {"code": 0, "data": created} if created else {"code": -1, "msg": "会话编号已存在"}
 
 
@@ -2857,32 +2890,15 @@ async def post_case_session_command(session_id: int, request: Request):
         return {"code": -1, "msg": "办案会话或命令无效"}
     if (action == "start" and session["status"] != "planned") or (action == "stop" and session["status"] != "active"):
         return {"code": -1, "msg": "当前会话状态不允许执行该命令"}
-    now = _now_iso()
-    if action == "start" and session.get("planned_start_at") and now < session["planned_start_at"]:
-        return {"code": -1, "msg": "未到计划开始时间，不能提前启动办案会话"}
-    if action == "start" and session.get("planned_end_at") and now >= session["planned_end_at"]:
-        return {"code": -1, "msg": "已超过计划结束时间，请重新排期后再启动办案会话"}
     command = db_create_case_device_command(session_id=session_id, action=action, scheduled_at=_now_iso(), idempotency_key=f"session:{session_id}:{action}", created_by=str((_request_user(request) or {}).get("username", "unknown")))
     return {"code": 0, "data": command} if command else {"code": -1, "msg": "命令创建失败"}
 
 
-@app.post("/api/case-sessions/{session_id}/reschedule", summary="重新排期未执行办案会话", tags=["案件"])
+@app.post("/api/case-sessions/{session_id}/reschedule", summary="人工办案模式不支持重新排期", tags=["案件"])
 async def post_case_session_reschedule(session_id: int, request: Request):
     if not _can_manage(request):
         return {"code": 403, "msg": "需要管理员或操作员权限"}
-    body = await request.json()
-    planned_start_at = _parse_planned_time(body.get("planned_start_at"))
-    planned_end_at = _parse_planned_time(body.get("planned_end_at"))
-    if not planned_start_at or not planned_end_at or planned_end_at <= planned_start_at or planned_start_at <= _now_iso():
-        return {"code": -1, "msg": "请设置未来的开始时间与晚于开始时间的结束时间"}
-    actor = str((_request_user(request) or {}).get("username", "unknown"))
-    updated = db_reschedule_case_session(session_id=session_id, planned_start_at=planned_start_at, planned_end_at=planned_end_at, actor=actor)
-    if not updated:
-        return {"code": -1, "msg": "仅未开始的办案会话可以重新排期"}
-    version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
-    db_create_case_device_command(session_id=session_id, action="start", scheduled_at=planned_start_at, idempotency_key=f"session:{session_id}:reschedule:{version}:start", created_by=actor)
-    db_create_case_device_command(session_id=session_id, action="stop", scheduled_at=planned_end_at, idempotency_key=f"session:{session_id}:reschedule:{version}:stop", created_by=actor)
-    return {"code": 0, "data": updated}
+    return {"code": -1, "msg": "人工办案会话不支持重新排期，请由现场人员手动开始和结束"}
 
 
 @app.post("/api/case-sessions/{session_id}/status", summary="更新办案会话状态", tags=["案件"])
@@ -2917,11 +2933,6 @@ async def post_device_case_session_status(session_id: int, request: Request, acc
     assignment = next((item for item in db_list_case_assignments(case_id=int(session["case_id"])) if item["device_id"] == device_id), None)
     if not assignment or assignment["status"] not in {"received", "handling"}:
         return {"code": -1, "msg": "设备未处于可办案状态"}
-    now = _now_iso()
-    if status == "active" and session.get("planned_start_at") and now < session["planned_start_at"]:
-        return {"code": -1, "msg": "未到计划开始时间，设备不能启动办案会话"}
-    if status == "active" and session.get("planned_end_at") and now >= session["planned_end_at"]:
-        return {"code": -1, "msg": "已超过计划结束时间，请由平台重新排期"}
     if status == "active" and assignment["status"] == "received":
         db_update_case_assignment_status(assignment_id=int(assignment["id"]), status="handling", actor=f"device:{device_id}")
     actor = f"device:{device_id}"

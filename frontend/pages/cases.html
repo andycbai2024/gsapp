@@ -40,9 +40,9 @@
     <div class="layui-card-header">办案流程工作台 <span class="layui-font-gray" style="font-size:12px;margin-left:8px">首页仅展示态势，案件录入与办理操作均在此处完成</span></div>
     <div class="layui-card-body">
       <div class="workflow-board">
-        <button type="button" class="workflow-step" data-flow="intake" title="创建案件并下发至办案设备">案件录入<strong id="workflow-intake">0</strong></button><button type="button" class="workflow-step" data-flow="ready" title="查看等待设备接收的案件">设备接收<strong id="workflow-ready">0</strong></button><button type="button" class="workflow-step" data-flow="scheduled" title="查看已选择时间的办案会话">案件排期<strong id="workflow-scheduled">0</strong></button><button type="button" class="workflow-step" data-flow="handling" title="设备端正在办理的案件">设备办理<strong id="workflow-handling">0</strong></button>
+        <button type="button" class="workflow-step" data-flow="intake" title="创建案件并下发至办案设备">案件录入<strong id="workflow-intake">0</strong></button><button type="button" class="workflow-step" data-flow="ready" title="查看等待设备接收的案件">设备接收<strong id="workflow-ready">0</strong></button><button type="button" class="workflow-step" data-flow="scheduled" title="查看已创建但尚未人工开始的办案会话">会话准备<strong id="workflow-scheduled">0</strong></button><button type="button" class="workflow-step" data-flow="handling" title="设备端正在办理的案件">设备办理<strong id="workflow-handling">0</strong></button>
       </div>
-      <div class="workflow-schedule" id="workflow-schedule">正在加载近期排期...</div>
+      <div class="workflow-schedule" id="workflow-schedule">正在加载待开始办案会话...</div>
     </div>
   </div>
   <div class="layui-card">
@@ -99,8 +99,6 @@
       <div class="layui-form-item"><label class="layui-form-label">工作单位</label><div class="layui-input-block"><input class="layui-input" name="interviewer_two_unit"></div></div>
       <div class="layui-form-item"><label class="layui-form-label">办案地点</label><div class="layui-input-block"><input class="layui-input" name="interview_location"></div></div>
       <div class="layui-form-item"><label class="layui-form-label">问话次数</label><div class="layui-input-block"><input class="layui-input" type="number" name="inquiry_count" min="1" max="99" value="1"></div></div>
-      <div class="layui-form-item"><label class="layui-form-label">开始时间</label><div class="layui-input-block"><input class="layui-input" type="datetime-local" name="planned_start_at"></div></div>
-      <div class="layui-form-item"><label class="layui-form-label">结束时间</label><div class="layui-input-block"><input class="layui-input" type="datetime-local" name="planned_end_at"></div></div>
       <div class="layui-form-item full-row"><label class="layui-form-label">笔录模板</label><div class="layui-input-block"><select name="transcript_template" id="ID_case_transcript_template_select" lay-verify="required"><option value="">请先选择目标设备</option></select></div></div>
         </div>
       </section>
@@ -116,8 +114,6 @@
     <div class="layui-form-item"><label class="layui-form-label">会话编号</label><div class="layui-input-block"><input class="layui-input" name="session_no" placeholder="不填由平台自动生成"></div></div>
     <div class="layui-form-item"><label class="layui-form-label">会话类型</label><div class="layui-input-block"><select name="session_type"><option value="interrogation">讯问</option><option value="inquiry">询问</option><option value="identification">辨认</option><option value="other">其他</option></select></div></div>
     <div class="layui-form-item"><label class="layui-form-label">录像模式</label><div class="layui-input-block"><select name="recording_mode"><option value="disk">仅硬盘录制</option><option value="sync_burn">光盘与硬盘同步录制</option></select></div></div>
-    <div class="layui-form-item"><label class="layui-form-label">计划开始</label><div class="layui-input-block"><input class="layui-input" type="datetime-local" name="planned_start_at"></div></div>
-    <div class="layui-form-item"><label class="layui-form-label">计划结束</label><div class="layui-input-block"><input class="layui-input" type="datetime-local" name="planned_end_at" placeholder="设置开始时间时必须设置结束时间"></div></div>
     <div class="layui-form-item"><label class="layui-form-label">办案场所</label><div class="layui-input-block"><input class="layui-input" name="location"></div></div>
     <div class="layui-form-item"><label class="layui-form-label">被办案人</label><div class="layui-input-block"><input class="layui-input" name="subject_name" placeholder="被讯问人、被询问人或谈话对象"></div></div>
     <div class="layui-form-item"><label class="layui-form-label">办案人员</label><div class="layui-input-block"><input class="layui-input" name="interviewer_names" placeholder="多人用顿号或逗号分隔"></div></div>
@@ -154,7 +150,7 @@ layui.use(['table', 'layer', 'form', 'element', 'jquery'], function () {
       const stages = (res.data || {}).stages || {};
       ['intake','ready','scheduled','handling','evidence','closed','archived'].forEach(stage => $(`#workflow-${stage}`).text(stages[stage] || 0));
       const sessions = (res.data || {}).scheduled_sessions || [];
-      $('#workflow-schedule').html(sessions.length ? `<b>近期排期：</b>${sessions.slice(0, 3).map(item => `${escapeHtml(item.planned_start_at || '').replace('T',' ').slice(0,16)} · ${escapeHtml(item.case_no)} · ${escapeHtml(item.room_name || '未选择房间')}`).join('　|　')}` : '暂无待执行的办案排期');
+      $('#workflow-schedule').html(sessions.length ? `<b>待人工开始会话：</b>${sessions.slice(0, 3).map(item => `${escapeHtml(item.case_no)} · ${escapeHtml(item.session_no || '未编号会话')} · ${escapeHtml(item.room_name || '未选择房间')}`).join('　|　')}` : '暂无待人工开始的办案会话');
     });
   }
   function renderCases() {
@@ -209,7 +205,8 @@ layui.use(['table', 'layer', 'form', 'element', 'jquery'], function () {
     const actions = [];
     if (info.status === 'created') actions.push('<button type="button" class="layui-btn layui-btn-sm" id="ID_case_assign_device">下发设备</button>');
     if (assignments.length) actions.push('<button type="button" class="layui-btn layui-btn-sm layui-btn-primary" id="ID_case_assignment_list">查看设备接收</button>');
-    if (assignmentAccepted && !['closed', 'archived'].includes(info.status)) actions.push('<button type="button" class="layui-btn layui-btn-sm" id="ID_case_create_session">创建会话并排期</button>');
+    if (archives.length) actions.push(`<a class="layui-btn layui-btn-sm layui-btn-primary" href="/api/cases/${caseRow.id}/archive-package" target="_blank">下载完整归档包</a>`);
+    if (assignmentAccepted && !['closed', 'archived'].includes(info.status)) actions.push('<button type="button" class="layui-btn layui-btn-sm" id="ID_case_create_session">创建办案会话</button>');
     const controllableSession = sessions.find(item => item.status === 'active') || sessions.find(item => item.status === 'planned');
     if (controllableSession) actions.push(`<button type="button" class="layui-btn layui-btn-sm ${controllableSession.status === 'active' ? 'layui-btn-danger' : 'layui-btn-normal'} case-session-command" data-id="${controllableSession.id}" data-action="${controllableSession.status === 'active' ? 'stop' : 'start'}">${controllableSession.status === 'active' ? '停止会话' : '开始会话'}</button>`);
     const content = `<style>.case-workflow-steps{display:grid;grid-template-columns:repeat(7,minmax(84px,1fr));gap:6px;margin:16px 0}.case-workflow-step{min-height:54px;padding:8px;background:#f4f7f8;border:1px solid #e0e7ea;color:#75818a;font-size:12px}.case-workflow-step span{display:inline-block;width:18px;height:18px;margin-right:5px;text-align:center;line-height:18px;color:#fff;background:#aebac0;border-radius:50%}.case-workflow-step b{font-weight:600}.case-workflow-step.done{border-color:#95d7cf;color:#16877d;background:#edf9f7}.case-workflow-step.done span{background:#16baaa}.case-workflow-step.current{border-color:#f0b53b;color:#a66d00;background:#fff9e8}.case-workflow-step.current span{background:#ffb800}@media(max-width:800px){.case-workflow-steps{grid-template-columns:repeat(2,1fr)}}</style><div style="padding:16px">
@@ -229,7 +226,7 @@ layui.use(['table', 'layer', 'form', 'element', 'jquery'], function () {
     layer.open({ type:1, title:`案件办理工作台 - ${escapeHtml(caseRow.case_no)}`, area:['1080px','720px'], content, success:(layero) => {
       element.render('tab', 'ID_case_detail_tabs');
       table.render({ elem:'#ID_case_detail_sessions', data:detail.sessions || [], page:true, limit:8, height:260, cols:[[
-        {field:'session_no', title:'会话编号', minWidth:170}, {field:'session_type', title:'类型', width:90, templet:r => sessionTypes[r.session_type] || r.session_type}, {field:'subject_name', title:'被办案人', minWidth:110}, {field:'interviewer_names', title:'办案人员', minWidth:150}, {field:'recorder_name', title:'记录人', minWidth:100}, {field:'location', title:'办案场所', minWidth:130}, {field:'status', title:'状态', width:100, templet:r => sessionStatuses[r.status] || r.status}, {field:'planned_start_at', title:'计划开始', minWidth:170}, {title:'控制', width:170, templet:r => r.status === 'planned' ? `<button class="layui-btn layui-btn-xs case-session-command" data-id="${r.id}" data-action="start">开始</button> <button class="layui-btn layui-btn-xs layui-btn-primary case-session-reschedule" data-id="${r.id}">重新排期</button>` : r.status === 'active' ? `<button class="layui-btn layui-btn-xs layui-btn-danger case-session-command" data-id="${r.id}" data-action="stop">停止</button>` : '-'}
+        {field:'session_no', title:'会话编号', minWidth:170}, {field:'session_type', title:'类型', width:90, templet:r => sessionTypes[r.session_type] || r.session_type}, {field:'subject_name', title:'被办案人', minWidth:110}, {field:'interviewer_names', title:'办案人员', minWidth:150}, {field:'recorder_name', title:'记录人', minWidth:100}, {field:'location', title:'办案场所', minWidth:130}, {field:'status', title:'状态', width:100, templet:r => sessionStatuses[r.status] || r.status}, {field:'started_at', title:'实际开始', minWidth:170}, {field:'ended_at', title:'实际结束', minWidth:170}, {title:'操作', width:190, templet:r => { const controls = r.status === 'planned' ? `<button class="layui-btn layui-btn-xs case-session-command" data-id="${r.id}" data-action="start">开始</button>` : r.status === 'active' ? `<button class="layui-btn layui-btn-xs layui-btn-danger case-session-command" data-id="${r.id}" data-action="stop">结束</button>` : ''; const archiveCount = archives.filter(item => Number(item.session_id) === Number(r.id)).length; return controls + (archiveCount ? ` <button class="layui-btn layui-btn-xs layui-btn-primary case-session-playback" data-id="${r.id}">回放材料(${archiveCount})</button> <a class="layui-btn layui-btn-xs" href="/api/cases/${caseRow.id}/sessions/${r.id}/archive-package" target="_blank">下载本次包</a>` : ''); }}
       ]] });
       table.render({ elem:'#ID_case_detail_media', data:detail.media || [], page:true, limit:8, height:260, cols:[[
         {field:'media_type', title:'类型', width:80, templet:r => r.media_type === 'video' ? '录像' : '录音'}, {field:'session_no', title:'所属会话', minWidth:170}, {field:'original_name', title:'材料文件', minWidth:170}, {field:'source_stream', title:'来源流', minWidth:180}, {field:'started_at', title:'开始时间', minWidth:170}, {field:'ended_at', title:'结束时间', minWidth:170}, {field:'integrity_status', title:'完整性', width:90}, {field:'sha256', title:'SHA-256', minWidth:180}
@@ -249,6 +246,7 @@ layui.use(['table', 'layer', 'form', 'element', 'jquery'], function () {
       ]] });
       layero.find('#ID_case_assign_device').on('click', () => openAssignmentDialog(caseRow));
       layero.find('#ID_case_assignment_list').on('click', () => openAssignmentList(caseRow));
+      layero.on('click', '.case-session-playback', function () { const sessionId = Number($(this).data('id')); const session = sessions.find(item => Number(item.id) === sessionId); const rows = archives.filter(item => Number(item.session_id) === sessionId); layer.open({ type:1, title:`办案材料回放 - ${escapeHtml(session ? session.session_no : '')}`, area:['860px','560px'], content:`<div style="padding:16px"><table id="ID_case_session_archive_table"></table></div>`, success:() => table.render({ elem:'#ID_case_session_archive_table', data:rows, page:true, limit:8, cols:[[{field:'archive_type', title:'类型', width:100}, {field:'original_name', title:'材料名称', minWidth:250}, {field:'created_at', title:'归档时间', minWidth:170}, {title:'操作', width:150, templet:r => /\.(pdf|html?|mp4|webm|mov|ogg)$/i.test(r.original_name || '') ? `<button class="layui-btn layui-btn-xs layui-btn-primary case-archive-preview" data-id="${r.id}">预览</button> <a class="layui-btn layui-btn-xs" href="/api/archives/${r.id}/download" target="_blank">下载</a>` : `<a class="layui-btn layui-btn-xs" href="/api/archives/${r.id}/download" target="_blank">下载</a>`}]] }) }); });
       layero.find('#ID_case_create_session').on('click', () => openSessionDialog(caseRow, assignments));
       $(document).off('click.case-detail-command', '.case-session-command').on('click.case-detail-command', '.case-session-command', function () { const button = $(this); request(`/api/case-sessions/${button.data('id')}/commands`, 'POST', {action:button.data('action')}, res => { if (res.code === 0) { layer.msg('命令已排队，正在等待设备执行'); setTimeout(() => openCaseDetail(caseRow), 500); } else layer.msg(res.msg || '命令创建失败'); }); });
       $(document).off('click.case-detail-reschedule', '.case-session-reschedule').on('click.case-detail-reschedule', '.case-session-reschedule', function () { const session = (detail.sessions || []).find(item => Number(item.id) === Number($(this).data('id'))); if (!session) return; const toLocal = value => String(value || '').replace('Z', '').slice(0, 16); const content = `<form class="layui-form" style="padding:18px" id="ID_case_reschedule_form" data-session-id="${session.id}"><div class="layui-form-item"><label class="layui-form-label">计划开始</label><div class="layui-input-block"><input class="layui-input" type="datetime-local" name="planned_start_at" value="${escapeHtml(toLocal(session.planned_start_at))}" required></div></div><div class="layui-form-item"><label class="layui-form-label">计划结束</label><div class="layui-input-block"><input class="layui-input" type="datetime-local" name="planned_end_at" value="${escapeHtml(toLocal(session.planned_end_at))}" required></div></div><div class="layui-form-item"><div class="layui-input-block"><button class="layui-btn" lay-submit lay-filter="case-reschedule-submit">确认重新排期</button></div></div></form>`; layer.open({ type:1, title:`重新排期 - ${escapeHtml(session.session_no)}`, area:['520px','auto'], content, success:() => form.render() }); });
@@ -288,8 +286,6 @@ layui.use(['table', 'layer', 'form', 'element', 'jquery'], function () {
       });
       form.val('ID_case_session_form_el', {
         session_type: caseRow.case_category === 'talk' ? 'other' : caseRow.case_category,
-        planned_start_at: String(caseRow.planned_start_at || '').replace('Z', '').slice(0, 16),
-        planned_end_at: String(caseRow.planned_end_at || '').replace('Z', '').slice(0, 16),
         location: caseRow.interview_location || '', subject_name: caseRow.subject_name || '',
         interviewer_names: [caseRow.lead_investigator, caseRow.interviewer_two].filter(Boolean).join('、'),
         recorder_name: caseRow.recorder_name || ''
@@ -331,7 +327,7 @@ layui.use(['table', 'layer', 'form', 'element', 'jquery'], function () {
     activeFlow = activeFlow === flow ? '' : flow;
     $('.workflow-step').removeClass('active');
     if (activeFlow) $(this).addClass('active');
-    const labels = { ready:'已下发，等待设备接收', scheduled:'已排期，请在案件工作台查看会话', handling:'设备正在办案' };
+    const labels = { ready:'已下发，等待设备接收', scheduled:'会话已创建，请在案件工作台人工开始', handling:'设备正在办案' };
     if (activeFlow === 'scheduled') {
       activeFlow = '';
       layer.msg(labels[flow]);
@@ -339,10 +335,13 @@ layui.use(['table', 'layer', 'form', 'element', 'jquery'], function () {
     renderCases();
   });
   $('#ID_case_add').on('click', openCaseCreateDialog);
+  if (new URLSearchParams(window.location.search).get('action') === 'create') {
+    setTimeout(() => $('#ID_case_add').trigger('click'), 0);
+  }
   form.on('select(case-device)', data => loadDeviceNoteTemplates(data.value));
   form.on('submit(case-submit)', data => { if (!data.field.transcript_template) return layer.msg('请选择目标设备中的笔录模板'), false; request('/api/cases', 'POST', data.field, res => { if (res.code === 0) { layer.closeAll(); layer.msg('案件已创建并下发至设备'); loadWorkflow(); loadCases(); } else layer.msg(res.msg); }); return false; });
   form.on('submit(case-assign-submit)', data => { if (!activeCase) return false; request(`/api/cases/${activeCase.id}/assignments`, 'POST', data.field, res => { if (res.code === 0) { layer.closeAll(); layer.msg('案件已下发至设备'); loadCases(); } else layer.msg(res.msg); }); return false; });
-  form.on('submit(case-session-submit)', data => { if (!activeCase) return false; const payload = Object.assign({}, data.field); if ((payload.planned_start_at && !payload.planned_end_at) || (!payload.planned_start_at && payload.planned_end_at) || (payload.planned_start_at && payload.planned_end_at && new Date(payload.planned_end_at) <= new Date(payload.planned_start_at))) return layer.msg('计划结束时间必须晚于计划开始时间，且开始和结束时间需同时填写'), false; ['planned_start_at', 'planned_end_at'].forEach(field => { if (payload[field]) payload[field] = new Date(payload[field]).toISOString(); }); request(`/api/cases/${activeCase.id}/sessions`, 'POST', payload, res => { if (res.code === 0) { layer.closeAll(); layer.msg(payload.planned_start_at ? '办案会话与计划已创建' : '办案会话已创建'); openCaseDetail(activeCase); } else layer.msg(res.msg); }); return false; });
+  form.on('submit(case-session-submit)', data => { if (!activeCase) return false; request(`/api/cases/${activeCase.id}/sessions`, 'POST', data.field, res => { if (res.code === 0) { layer.closeAll(); layer.msg('办案会话已创建，请由现场办案人员手动开始'); openCaseDetail(activeCase); } else layer.msg(res.msg); }); return false; });
   form.on('submit(case-reschedule-submit)', data => { const payload = Object.assign({}, data.field); const sessionId = Number($('#ID_case_reschedule_form').data('session-id')); ['planned_start_at', 'planned_end_at'].forEach(field => { if (payload[field]) payload[field] = new Date(payload[field]).toISOString(); }); if (!sessionId) return false; request(`/api/case-sessions/${sessionId}/reschedule`, 'POST', payload, res => { if (res.code === 0) { layer.closeAll(); layer.msg('办案会话已重新排期'); openCaseDetail(activeCase); } else layer.msg(res.msg || '重新排期失败'); }); return false; });
   table.on('tool(ID_case_table)', obj => { if (obj.event === 'detail') openCaseDetail(obj.data); if (obj.event === 'assign') openAssignmentDialog(obj.data); });
   form.render('select');

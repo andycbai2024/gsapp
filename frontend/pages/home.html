@@ -16,7 +16,8 @@
     .screen-action { color:var(--cyan); background:transparent; border:1px solid rgba(38,223,255,.5); padding:4px 8px; cursor:pointer; }
     .screen-action:hover { background:rgba(38,223,255,.13); }
     .workflow-ribbon { display:grid; grid-template-columns:repeat(7,minmax(100px,1fr)); gap:8px; margin-top:12px; padding:10px; border:1px solid rgba(46,184,255,.35); background:rgba(4,28,62,.72); }
-    .workflow-node { position:relative; min-height:58px; padding:9px 12px; border:1px solid rgba(83,163,230,.35); background:linear-gradient(135deg,rgba(19,82,149,.52),rgba(5,34,74,.5)); }
+    .workflow-node { position:relative; min-height:58px; padding:9px 12px; color:inherit; text-align:left; font:inherit; cursor:pointer; border:1px solid rgba(83,163,230,.35); background:linear-gradient(135deg,rgba(19,82,149,.52),rgba(5,34,74,.5)); }
+    .workflow-node:hover,.workflow-node.active { border-color:var(--cyan); background:linear-gradient(135deg,rgba(19,116,185,.7),rgba(5,48,94,.72)); box-shadow:inset 0 0 16px rgba(38,223,255,.16); }
     .workflow-node:not(:last-child):after { content:""; position:absolute; z-index:2; top:27px; right:-7px; width:7px; height:7px; border-top:1px solid var(--cyan); border-right:1px solid var(--cyan); transform:rotate(45deg); }
     .workflow-node span { display:block; color:#a9d4eb; font-size:12px; }
     .workflow-node strong { display:block; margin-top:4px; color:#fff; font:700 21px Consolas,monospace; }
@@ -24,9 +25,9 @@
     .workflow-node.handling strong { color:var(--orange); }
     .screen-grid { display:grid; grid-template-columns:minmax(230px,1fr) minmax(430px,1.8fr) minmax(270px,1.1fr); gap:12px; margin-top:12px; }
     .left-column,.right-column,.center-column { min-width:0; display:grid; gap:12px; }
-    .left-column { grid-template-rows:230px 230px minmax(210px,1fr); }
+    .left-column { grid-template-rows:260px 260px minmax(205px,1fr); }
     .center-column { grid-template-rows:350px minmax(320px,1fr); }
-    .right-column { grid-template-rows:auto minmax(225px,1fr) minmax(235px,1fr); }
+    .right-column { grid-template-rows:minmax(250px,1fr) minmax(235px,1fr); }
     .screen-panel { position:relative; min-width:0; overflow:hidden; border:1px solid var(--panel-line); background:linear-gradient(135deg,rgba(12,52,101,.9),rgba(4,24,56,.88)); box-shadow:inset 0 0 26px rgba(28,133,234,.08),0 0 20px rgba(0,72,148,.12); }
     .screen-panel:before,.screen-panel:after { content:""; position:absolute; width:16px; height:16px; border-color:var(--cyan); pointer-events:none; }
     .screen-panel:before { top:-1px; left:-1px; border-top:2px solid; border-left:2px solid; }
@@ -34,6 +35,14 @@
     .panel-title { height:36px; display:flex; align-items:center; padding:0 13px; font-size:14px; font-weight:700; color:#dff7ff; border-bottom:1px solid rgba(67,171,241,.25); background:linear-gradient(90deg,rgba(30,116,201,.33),transparent); }
     .panel-title:before { content:""; width:3px; height:14px; margin-right:8px; background:var(--cyan); box-shadow:0 0 7px var(--cyan); }
     .chart { height:calc(100% - 36px); min-height:150px; }
+    .device-access { display:grid; grid-template-columns:48% 52%; height:calc(100% - 36px); }
+    .device-access .chart { height:100%; min-height:0; }
+    .device-list { display:grid; align-content:start; gap:7px; max-height:100%; padding:11px 12px 11px 4px; overflow:auto; border-left:1px solid rgba(67,171,241,.24); }
+    .device-row { display:grid; grid-template-columns:9px minmax(0,1fr) auto; gap:8px; align-items:center; padding:8px; border:1px solid rgba(83,163,230,.26); background:rgba(8,49,101,.45); }
+    .device-dot { width:8px; height:8px; border-radius:50%; background:var(--orange); box-shadow:0 0 7px var(--orange); }
+    .device-dot.online { background:var(--green); box-shadow:0 0 7px var(--green); }
+    .device-row b { min-width:0; overflow:hidden; color:#eaf8ff; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+    .device-row small { color:var(--muted); font-size:11px; }
     .overview { display:grid; grid-template-columns:1fr 1.15fr 1fr; align-items:center; height:100%; padding:14px 10px 12px; }
     .metric-column { display:grid; gap:14px; }
     .overview-metric { padding:8px 2px; text-align:center; }
@@ -50,6 +59,7 @@
     .schedule-case { min-width:0; overflow:hidden; color:#edfaff; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
     .schedule-case small { display:block; margin-top:4px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .schedule-room { color:#b8e9ff; font-size:12px; text-align:right; }
+    .task-stage { color:var(--orange); font:600 12px Consolas,monospace; }
     .case-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; padding:11px 12px 0; }
     .case-strip-item { padding:9px 7px; text-align:center; border:1px solid rgba(57,139,239,.4); background:rgba(6,46,95,.7); color:var(--muted); font-size:12px; }
     .case-strip-item strong { display:block; margin-top:4px; color:#fff; font-size:20px; font-family:Consolas,monospace; }
@@ -79,9 +89,12 @@
     .stream-tile span { position:absolute; left:6px; right:6px; bottom:5px; padding:3px 4px; overflow:hidden; color:#eaf8ff; background:rgba(1,10,23,.68); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
     .stream-tile.empty { border-color:rgba(100,135,171,.45); }
     .stream-tile.empty:before { content:"暂无在线流"; color:rgba(160,190,215,.35); }
+    .quick-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; padding:12px; }
+    .quick-action { min-height:42px; color:#dff7ff; font:600 13px "Microsoft YaHei",sans-serif; cursor:pointer; border:1px solid rgba(93,190,246,.48); background:rgba(9,53,108,.56); }
+    .quick-action:hover { color:#06152b; border-color:var(--cyan); background:var(--cyan); }
     .empty-tip { padding:18px 12px; color:var(--muted); font-size:13px; text-align:center; }
     @keyframes screen-spin { to { transform:rotate(360deg); } }
-    @media (max-width:1180px) { .workflow-ribbon { grid-template-columns:repeat(4,1fr); } .screen-grid { grid-template-columns:1fr 1.55fr; } .right-column { grid-column:1 / -1; grid-template-columns:1fr 1.4fr 1.4fr; } .right-column > .screen-panel { min-height:230px; } }
+    @media (max-width:1180px) { .workflow-ribbon { grid-template-columns:repeat(4,1fr); } .screen-grid { grid-template-columns:1fr 1.55fr; } .right-column { grid-column:1 / -1; grid-template-columns:1fr 1.4fr; } .right-column > .screen-panel { min-height:230px; } }
     @media (max-width:780px) { .command-screen { padding:8px; } .screen-header { height:56px; justify-content:flex-start; } .screen-title { font-size:18px; letter-spacing:2px; } .screen-meta { top:19px; font-size:11px; } .screen-meta #screen-date { display:none; } .workflow-ribbon,.screen-grid,.left-column,.center-column,.right-column { display:grid; grid-template-columns:1fr; } .workflow-node:after { display:none; } .left-column,.center-column,.right-column { grid-template-rows:none; } .screen-panel { min-height:220px; } .overview { min-height:300px; } .case-strip { grid-template-columns:repeat(2,1fr); } .schedule-item { grid-template-columns:1fr; gap:4px; } .schedule-room { text-align:left; } }
   </style>
 </head>
@@ -92,21 +105,20 @@
       <div class="screen-meta"><span id="screen-date">--</span><button type="button" class="screen-action" id="screen-fullscreen">全屏</button></div>
     </header>
     <section class="workflow-ribbon" aria-label="办案流程主线">
-      <div class="workflow-node"><span>01 案件录入</span><strong id="flow-intake">0</strong></div><div class="workflow-node"><span>02 设备就绪</span><strong id="flow-ready">0</strong></div><div class="workflow-node"><span>03 案件排期</span><strong id="flow-scheduled">0</strong></div><div class="workflow-node handling"><span>04 开始办案</span><strong id="flow-handling">0</strong></div><div class="workflow-node"><span>05 笔录/音视频</span><strong id="flow-evidence">0</strong></div><div class="workflow-node"><span>06 案件办结</span><strong id="flow-closed">0</strong></div><div class="workflow-node"><span>07 材料归档</span><strong id="flow-archived">0</strong></div>
+      <button type="button" class="workflow-node" data-stage="ready"><span>01 设备就绪</span><strong id="flow-ready">0</strong></button><button type="button" class="workflow-node" data-stage="scheduled"><span>02 案件排期</span><strong id="flow-scheduled">0</strong></button><button type="button" class="workflow-node" data-stage="intake"><span>03 案件录入</span><strong id="flow-intake">0</strong></button><button type="button" class="workflow-node handling" data-stage="handling"><span>04 案件办理中</span><strong id="flow-handling">0</strong></button><button type="button" class="workflow-node" data-stage="evidence"><span>05 办理暂停中</span><strong id="flow-evidence">0</strong></button><button type="button" class="workflow-node" data-stage="closed"><span>06 案件办结</span><strong id="flow-closed">0</strong></button><button type="button" class="workflow-node" data-stage="archived"><span>07 材料归档</span><strong id="flow-archived">0</strong></button>
     </section>
     <section class="screen-grid">
       <div class="left-column">
-        <section class="screen-panel"><div class="panel-title">设备接入态势</div><div class="chart" id="device-chart"></div></section>
-        <section class="screen-panel"><div class="panel-title">案件办理分析</div><div class="chart" id="case-chart"></div></section>
-        <section class="screen-panel"><div class="panel-title">近七日告警趋势</div><div class="chart" id="alarm-chart"></div></section>
+        <section class="screen-panel"><div class="panel-title">设备接入态势</div><div class="device-access"><div class="chart" id="device-chart"></div><div class="device-list" id="device-list"><div class="empty-tip">正在加载设备...</div></div></div></section>
+        <section class="screen-panel"><div class="panel-title">统计趋势</div><div class="chart" id="trend-chart"></div></section>
+        <section class="screen-panel"><div class="panel-title">快捷操作</div><div class="quick-actions"><button class="quick-action" data-page="./pages/cases.html?action=create">新建案件</button><button class="quick-action" data-page="./pages/cases.html">下发案件办理</button><button class="quick-action" data-page="./pages/cases.html">案件管理</button><button class="quick-action" data-page="./pages/video-preview.html">预览控制</button><button class="quick-action" data-page="./pages/playback.html">案件回放</button><button class="quick-action" data-page="./pages/settings.html">系统设置</button><button class="quick-action" data-page="./pages/resources.html">谈话室管理</button></div></section>
       </div>
       <div class="center-column">
         <section class="screen-panel"><div class="overview"><div class="metric-column"><div class="overview-metric"><span>在线设备</span><strong id="metric-online">0</strong><span>台</span></div><div class="overview-metric"><span>活跃告警</span><strong id="metric-alarms">0</strong><span>条</span></div></div><div class="core-orbit"><div class="core-label">办案区当前使用率<strong id="metric-usage">0%</strong></div></div><div class="metric-column"><div class="overview-metric"><span>可用谈话室</span><strong id="metric-rooms">0</strong><span>间</span></div><div class="overview-metric"><span>正在办理</span><strong id="metric-cases">0</strong><span>件</span></div></div></div></section>
-        <section class="screen-panel"><div class="panel-title">近期办案排期</div><div class="schedule-list" id="schedule-list"><div class="empty-tip">暂无待执行的办案排期</div></div></section>
+        <section class="screen-panel"><div class="panel-title" id="task-list-title">任务列表 · 设备就绪</div><div class="schedule-list" id="schedule-list"><div class="empty-tip">暂无设备就绪任务</div></div></section>
       </div>
       <div class="right-column">
-        <section class="screen-panel"><div class="panel-title">今日概览</div><div class="today-summary"><div class="summary-item"><span>已注册设备</span><strong id="summary-devices">0</strong></div><div class="summary-item"><span>在线率</span><strong id="summary-rate">0%</strong></div><div class="summary-item"><span>谈话室</span><strong id="summary-rooms">0</strong></div></div></section>
-        <section class="screen-panel"><div class="panel-title">谈话室管理</div><div class="room-list" id="room-list"><div class="empty-tip">正在加载房间...</div></div></section>
+        <section class="screen-panel"><div class="panel-title">谈话室状态</div><div class="room-list" id="room-list"><div class="empty-tip">正在加载房间...</div></div></section>
         <section class="screen-panel"><div class="panel-title">视频监控</div><div class="stream-grid" id="stream-grid"><div class="stream-tile empty"></div><div class="stream-tile empty"></div><div class="stream-tile empty"></div><div class="stream-tile empty"></div></div></section>
       </div>
     </section>
@@ -115,25 +127,27 @@
     layui.use(["jquery"], function () {
       const $ = layui.jquery;
       const chartTextStyle = { color:"#9bc9e3", fontSize:11 };
-      const charts = ["device-chart","case-chart","alarm-chart"].map(function (id) { return echarts.init(document.getElementById(id)); });
+      const charts = ["device-chart","trend-chart"].map(function (id) { return echarts.init(document.getElementById(id)); });
       let refreshTimer = null;
+      let activeTaskStage = "ready";
+      let dashboardData = {};
+      const taskStageLabels = { ready:"设备就绪", scheduled:"案件排期", intake:"案件录入", handling:"案件办理中", evidence:"办理暂停中", closed:"案件办结", archived:"材料归档" };
       function value(data, selector) { $(selector).text(data == null ? 0 : data); }
       function safeList(response) { return response && response.code === 0 && Array.isArray(response.data) ? response.data : []; }
       function stateName(status) { return { active:"待处置", acknowledged:"已确认", resolved:"已解除" }[status] || status || "未知"; }
       function escapeHtml(text) { return String(text || "-").replace(/[&<>'"]/g, function (item) { return ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[item]; }); }
       function formatTime(time) { if (!time) return "-"; const date = new Date(time); return Number.isNaN(date.getTime()) ? String(time).replace("T"," ").slice(0,19) : date.toLocaleString("zh-CN", { hour12:false }); }
       function updateClock() { const date = new Date(); $("#screen-date").text(date.toLocaleString("zh-CN", { hour12:false }) + " 星期" + "日一二三四五六"[date.getDay()]); }
-      function initChartData(devices, stages, alarms) {
+      function initChartData(devices, cases, alarms) {
         const online = devices.filter(function (item) { return item.status === "online"; }).length;
         const enabledOffline = devices.filter(function (item) { return item.enabled && item.status !== "online"; }).length;
         const disabled = devices.length - online - enabledOffline;
         charts[0].setOption({ tooltip:{ trigger:"item" }, legend:{ bottom:5, textStyle:chartTextStyle }, series:[{ type:"pie", radius:["38%","66%"], avoidLabelOverlap:true, label:{ color:"#d5efff", formatter:"{b}\n{c}" }, data:[{ name:"在线", value:online, itemStyle:{ color:"#35d78b" } },{ name:"离线", value:enabledOffline, itemStyle:{ color:"#ffb34d" } },{ name:"未启用", value:Math.max(0,disabled), itemStyle:{ color:"#477caa" } }] }] }, true);
-        const workflowStates = [{ key:"intake", name:"录入", color:"#3187ff" },{ key:"ready", name:"就绪", color:"#26dfff" },{ key:"scheduled", name:"排期", color:"#9b7cff" },{ key:"handling", name:"办案", color:"#ffb34d" },{ key:"evidence", name:"证据", color:"#ff6b8b" },{ key:"closed", name:"办结", color:"#35d78b" },{ key:"archived", name:"归档", color:"#78a7c8" }];
-        charts[1].setOption({ tooltip:{ trigger:"axis" }, grid:{ top:30,left:38,right:18,bottom:42 }, xAxis:{ type:"category", data:workflowStates.map(function (item) { return item.name; }), axisLabel:chartTextStyle, axisLine:{ lineStyle:{ color:"#37658d" } } }, yAxis:{ type:"value", minInterval:1, axisLabel:chartTextStyle, splitLine:{ lineStyle:{ color:"rgba(83,142,190,.18)" } } }, series:[{ type:"bar", barWidth:"55%", data:workflowStates.map(function (item) { return { value:Number(stages[item.key] || 0), itemStyle:{ color:item.color } }; }) }] }, true);
-        const labels = []; const trend = [];
-        for (let offset = 6; offset >= 0; offset -= 1) { const date = new Date(); date.setHours(0,0,0,0); date.setDate(date.getDate() - offset); const next = new Date(date); next.setDate(next.getDate() + 1); labels.push((date.getMonth() + 1) + "/" + date.getDate()); trend.push(alarms.filter(function (alarm) { const occurred = new Date(alarm.occurred_at || alarm.created_at); return occurred >= date && occurred < next; }).length); }
-        charts[2].setOption({ tooltip:{ trigger:"axis" }, grid:{ top:24,left:38,right:18,bottom:30 }, xAxis:{ type:"category", boundaryGap:false, data:labels, axisLabel:chartTextStyle, axisLine:{ lineStyle:{ color:"#37658d" } } }, yAxis:{ type:"value", minInterval:1, axisLabel:chartTextStyle, splitLine:{ lineStyle:{ color:"rgba(83,142,190,.18)" } } }, series:[{ type:"line", smooth:true, symbol:"circle", symbolSize:6, data:trend, lineStyle:{ color:"#26dfff", width:2 }, itemStyle:{ color:"#26dfff" }, areaStyle:{ color:"rgba(38,223,255,.16)" } }] }, true);
+        const labels = []; const alarmTrend = []; const intakeTrend = []; const archiveTrend = [];
+        for (let offset = 6; offset >= 0; offset -= 1) { const date = new Date(); date.setHours(0,0,0,0); date.setDate(date.getDate() - offset); const next = new Date(date); next.setDate(next.getDate() + 1); labels.push((date.getMonth() + 1) + "/" + date.getDate()); alarmTrend.push(alarms.filter(function (alarm) { const occurred = new Date(alarm.occurred_at || alarm.created_at); return occurred >= date && occurred < next; }).length); intakeTrend.push(cases.filter(function (item) { const occurred = new Date(item.created_at || item.updated_at); return occurred >= date && occurred < next; }).length); archiveTrend.push(cases.filter(function (item) { const occurred = new Date(item.updated_at); return item.status === "archived" && occurred >= date && occurred < next; }).length); }
+        charts[1].setOption({ tooltip:{ trigger:"axis" }, legend:{ top:7, textStyle:chartTextStyle }, grid:{ top:42,left:38,right:18,bottom:30 }, xAxis:{ type:"category", boundaryGap:false, data:labels, axisLabel:chartTextStyle, axisLine:{ lineStyle:{ color:"#37658d" } } }, yAxis:{ type:"value", minInterval:1, axisLabel:chartTextStyle, splitLine:{ lineStyle:{ color:"rgba(83,142,190,.18)" } } }, series:[{ name:"新增案件", type:"line", smooth:true, symbol:"circle", data:intakeTrend, lineStyle:{ color:"#26dfff", width:2 }, itemStyle:{ color:"#26dfff" } },{ name:"归档案件", type:"line", smooth:true, symbol:"circle", data:archiveTrend, lineStyle:{ color:"#35d78b", width:2 }, itemStyle:{ color:"#35d78b" } },{ name:"告警", type:"line", smooth:true, symbol:"circle", data:alarmTrend, lineStyle:{ color:"#ffb34d", width:2 }, itemStyle:{ color:"#ffb34d" } }] }, true);
       }
+      function renderDeviceList(devices) { if (!devices.length) { $("#device-list").html('<div class="empty-tip">暂无已注册设备</div>'); return; } $("#device-list").html(devices.map(function (device) { const online = device.status === "online"; return '<div class="device-row"><i class="device-dot ' + (online ? 'online' : '') + '"></i><b title="' + escapeHtml(device.name || device.device_id) + '">' + escapeHtml(device.name || device.device_id || "未命名设备") + '</b><small>' + (online ? '在线' : '离线') + '</small></div>'; }).join("")); }
       function renderRooms(rooms, devices) {
         const deviceMap = new Map(devices.map(function (item) { return [item.device_id,item]; }));
         const visibleRooms = rooms.slice(0,15);
@@ -166,13 +180,20 @@
         if (!rows.length) { $("#alarm-table-body").html('<tr><td colspan="4" class="empty-tip">当前没有报警记录</td></tr>'); return; }
         $("#alarm-table-body").html(rows.map(function (alarm) { return '<tr><td><span class="alarm-state ' + escapeHtml(alarm.status) + '">' + stateName(alarm.status) + '</span></td><td title="' + escapeHtml(alarm.message) + '">' + escapeHtml(alarm.message) + '</td><td>' + escapeHtml(alarm.device_name || alarm.device_id || alarm.room_name || "平台") + '</td><td>' + formatTime(alarm.occurred_at || alarm.created_at) + '</td></tr>'; }).join(""));
       }
-      function renderSchedule(sessions) {
-        if (!sessions.length) { $("#schedule-list").html('<div class="empty-tip">暂无待执行的办案排期</div>'); return; }
-        $("#schedule-list").html(sessions.slice(0, 6).map(function (session) {
-          const start = formatTime(session.planned_start_at).slice(0, 16);
-          const title = (session.case_no || "未编号案件") + " · " + (session.case_name || session.session_no || "办案会话");
-          const location = session.room_name || session.device_name || "待分配房间";
-          return '<div class="schedule-item"><span class="schedule-time">' + escapeHtml(start) + '</span><span class="schedule-case">' + escapeHtml(title) + '<small>' + escapeHtml(session.session_no || "") + '</small></span><span class="schedule-room">' + escapeHtml(location) + '</span></div>';
+      function renderTaskList() {
+        const stage = activeTaskStage;
+        const label = taskStageLabels[stage];
+        const tasks = stage === "scheduled" ? dashboardData.scheduled_sessions || [] : dashboardData.stage_cases && dashboardData.stage_cases[stage] || [];
+        $("#task-list-title").text("任务列表 · " + label);
+        $(".workflow-node").removeClass("active");
+        $(".workflow-node[data-stage='" + stage + "']").addClass("active");
+        if (!tasks.length) { $("#schedule-list").html('<div class="empty-tip">暂无' + label + '任务</div>'); return; }
+        $("#schedule-list").html(tasks.slice(0, 10).map(function (task) {
+          const isSessionTask = stage === "scheduled";
+          const title = (task.case_no || "未编号案件") + " · " + (task.case_name || task.name || task.session_no || "办案任务");
+          const detail = isSessionTask ? (task.session_no || "待人工开始") : formatTime(task.updated_at);
+          const location = isSessionTask ? (task.room_name || task.device_name || "待分配场所") : (task.status || label);
+          return '<div class="schedule-item"><span class="task-stage">' + escapeHtml(label) + '</span><span class="schedule-case">' + escapeHtml(title) + '<small>' + escapeHtml(detail) + '</small></span><span class="schedule-room">' + escapeHtml(location) + '</span></div>';
         }).join(""));
       }
       function refreshDashboard() {
@@ -185,11 +206,13 @@
           const usage = availableRooms ? Math.min(100,Math.round(activeCases / availableRooms * 100)) : 0;
           ["intake","ready","scheduled","handling","evidence","closed","archived"].forEach(function (stage) { value(stages[stage] || 0, "#flow-" + stage); });
           value(online,"#metric-online"); value(activeAlarms,"#metric-alarms"); value(availableRooms,"#metric-rooms"); value(activeCases,"#metric-cases"); value(usage + "%","#metric-usage");
-          value(devices.length,"#summary-devices"); value(devices.length ? Math.round(online / devices.length * 100) + "%" : "0%","#summary-rate"); value(rooms.length,"#summary-rooms");
-          initChartData(devices,stages,alarms); renderRooms(rooms,devices); renderStreams(streams); renderAlarms(alarms); renderSchedule(workflow.scheduled_sessions || []);
+          dashboardData = workflow;
+          initChartData(devices,cases,alarms); renderDeviceList(devices); renderRooms(rooms,devices); renderStreams(streams); renderTaskList();
         }).always(function () { refreshTimer = setTimeout(refreshDashboard,30000); });
       }
       $("#screen-fullscreen").on("click", function () { const root = document.getElementById("command-screen"); if (document.fullscreenElement) document.exitFullscreen(); else if (root.requestFullscreen) root.requestFullscreen(); });
+      $(".workflow-node").on("click", function () { activeTaskStage = $(this).data("stage"); renderTaskList(); });
+      $(".quick-action").on("click", function () { const page = $(this).data("page"); const frame = window.parent && window.parent.document && window.parent.document.getElementById("main-frame"); if (frame) frame.src = page; else window.location.href = page; });
       $(window).on("resize", function () { charts.forEach(function (chart) { chart.resize(); }); });
       window.clearnTimer = function () { if (refreshTimer) clearTimeout(refreshTimer); refreshTimer = null; charts.forEach(function (chart) { chart.dispose(); }); };
       updateClock(); setInterval(updateClock,1000); refreshDashboard();

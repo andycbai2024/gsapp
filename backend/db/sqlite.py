@@ -2385,7 +2385,7 @@ def set_remote_hearing_task_state(*, task_id: int, state: str, actor: str) -> di
 
 
 def _command_query() -> str:
-    return """SELECT cmd.*, s.case_id, s.session_no, c.case_no, s.recording_mode, s.status AS session_status, d.name AS device_name
+    return """SELECT cmd.*, s.case_id, s.session_no, c.case_no, s.recording_mode, s.planned_start_at, s.planned_end_at, s.status AS session_status, d.name AS device_name
               FROM case_device_command cmd JOIN case_session s ON s.id=cmd.session_id
               JOIN case_info c ON c.id=s.case_id
               JOIN device d ON d.device_id=cmd.device_id"""
@@ -2772,8 +2772,8 @@ def get_case_workflow_dashboard() -> dict[str, Any]:
                                                        FROM case_session s JOIN case_info c ON c.id=s.case_id
                                                        JOIN device d ON d.device_id=s.device_id
                                                        LEFT JOIN interview_room r ON r.id=s.room_id
-                                                       WHERE s.status='planned' AND s.planned_start_at IS NOT NULL
-                                                       ORDER BY s.planned_start_at LIMIT 12""").fetchall()]
+                                   WHERE s.status='planned'
+                                   ORDER BY s.created_at DESC, s.id DESC LIMIT 12""").fetchall()]
         rooms = [dict(row) for row in db.execute("""SELECT r.id, r.name, r.enabled,
                                GROUP_CONCAT(DISTINCT rd.device_id) AS device_ids,
                                                    (SELECT COUNT(*) FROM case_session s WHERE s.room_id=r.id AND s.status='active') AS active_session_count,
@@ -2806,7 +2806,20 @@ def get_case_workflow_dashboard() -> dict[str, Any]:
         if int(case["id"]) in scheduled_case_ids and case["status"] not in {"closed", "archived", "handling"}:
             stages["scheduled"] += 1
             stages["ready"] = max(0, stages["ready"] - 1)
-    return {"stages": stages, "scheduled_sessions": scheduled, "rooms": rooms}
+    stage_cases = {key: [] for key in stages}
+    for case in cases:
+        entry = {"case_id": case["id"], "case_no": case["case_no"], "case_name": case["name"], "status": case["status"], "updated_at": case["updated_at"]}
+        if case["status"] == "created":
+            stage_cases["intake"].append(entry)
+        elif case["status"] == "assigned":
+            stage_cases["scheduled" if int(case["id"]) in scheduled_case_ids else "ready"].append(entry)
+        elif int(case["id"]) in evidence_case_ids:
+            stage_cases["evidence"].append(entry)
+        elif case["status"] == "handling":
+            stage_cases["handling"].append(entry)
+        elif case["status"] in {"closed", "archived"}:
+            stage_cases[case["status"]].append(entry)
+    return {"stages": stages, "scheduled_sessions": scheduled, "stage_cases": stage_cases, "rooms": rooms}
 
 
 def archive_is_immutable(*, archive_id: int) -> bool:
