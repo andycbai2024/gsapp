@@ -321,7 +321,7 @@
 
         <ul class="layui-nav layui-nav-tree" style="margin-top: 24px; border-top: 1px solid #3c454d; padding-top: 8px;">
           <li class="layui-nav-item">
-            <a data-page="./pages/home.html?view=ops"><i class="gsapp-icon gsapp-icon-operations"
+            <a data-page="./pages/operations.html"><i class="gsapp-icon gsapp-icon-operations"
                 style="margin-right: 20px"></i>运维信息</a>
           </li>
         </ul>
@@ -371,7 +371,7 @@
           document.title = title;
           $('.logo-text').text(title);
           if (portal.logo_url) $('.logo-icon').attr('src', portal.logo_url);
-          const pageMap = { devices: './pages/devices.html', resources: './pages/resources.html', 'video-preview': './pages/video-preview.html', 'gb28181-preview': './pages/gb28181-preview.html', cases: './pages/cases.html', 'remote-hearing': './pages/remote-hearing.html', organization: './pages/organization.html', alarms: './pages/alarms.html', 'access-control': './pages/access-control.html', 'remote-command': './pages/remote-command.html', 'video-wall': './pages/video-wall.html', playback: './pages/playback.html', 'portal-settings': './pages/portal-settings.html', 'gb28181-settings': './pages/gb28181-settings.html' };
+          const pageMap = { devices: './pages/devices.html', resources: './pages/resources.html', 'video-preview': './pages/video-preview.html', 'gb28181-preview': './pages/gb28181-preview.html', cases: './pages/cases.html', 'remote-hearing': './pages/remote-hearing.html', organization: './pages/organization.html', alarms: './pages/alarms.html', 'access-control': './pages/access-control.html', 'remote-command': './pages/remote-command.html', 'video-wall': './pages/video-wall.html', playback: './pages/playback.html', 'portal-settings': './pages/portal-settings.html', 'gb28181-settings': './pages/gb28181-settings.html', operations: './pages/operations.html' };
           Object.entries(pageMap).forEach(([key, page]) => $(`a[data-page="${page}"]`).parent().toggle(!(portal.hidden_menu_pages || []).includes(key)));
           if (!user || user.role !== 'admin') $('a[data-page="./pages/portal-settings.html"], a[data-page="./pages/gb28181-settings.html"]').parent().hide();
           const links = (portal.quick_links || []).map(item => `<li class="layui-nav-item"><a href="${$('<div>').text(item.url).html()}" target="_blank" rel="noopener noreferrer">${$('<div>').text(item.label).html()}</a></li>`).join('');
@@ -464,7 +464,6 @@
             });
 
         }
-
         // 使用事件委托监听菜单点击
         $("body").on("click", "a[data-page]", function (e) {
           e.preventDefault();

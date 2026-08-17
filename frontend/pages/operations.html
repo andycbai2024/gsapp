@@ -1,0 +1,38 @@
+<meta charset="utf-8">
+<div id="ID_operations" style="padding:16px">
+  <style>
+    #ID_operations .operations-grid { display:grid; grid-template-columns:repeat(3,minmax(240px,1fr)); gap:14px; }
+    #ID_operations .operations-grid.host { grid-template-columns:repeat(4,minmax(220px,1fr)); margin-top:14px; }
+    #ID_operations .operations-chart { height:310px; }
+    #ID_operations .layui-card-header { font-weight:600; }
+    @media(max-width:1100px) { #ID_operations .operations-grid,#ID_operations .operations-grid.host { grid-template-columns:repeat(2,minmax(240px,1fr)); } }
+    @media(max-width:620px) { #ID_operations .operations-grid,#ID_operations .operations-grid.host { grid-template-columns:1fr; } }
+  </style>
+  <div class="layui-card"><div class="layui-card-header">运维信息 <span class="layui-font-gray" style="margin-left:8px;font-size:12px">ZLMediaKit 与主机实时性能</span></div><div class="layui-card-body">
+    <div class="operations-grid"><section class="layui-card"><div class="layui-card-header">服务对象统计</div><div class="layui-card-body"><div id="ID_ops_statistic" class="operations-chart"></div></div></section><section class="layui-card"><div class="layui-card-header">后台线程负载</div><div class="layui-card-body"><div id="ID_ops_work_threads" class="operations-chart"></div></div></section><section class="layui-card"><div class="layui-card-header">网络线程负载</div><div class="layui-card-body"><div id="ID_ops_threads" class="operations-chart"></div></div></section></div>
+    <div class="operations-grid host"><section class="layui-card"><div class="layui-card-header">CPU 使用率</div><div class="layui-card-body"><div id="ID_ops_cpu" class="operations-chart"></div></div></section><section class="layui-card"><div class="layui-card-header">内存使用</div><div class="layui-card-body"><div id="ID_ops_memory" class="operations-chart"></div></div></section><section class="layui-card"><div class="layui-card-header">磁盘使用</div><div class="layui-card-body"><div id="ID_ops_disk" class="operations-chart"></div></div></section><section class="layui-card"><div class="layui-card-header">网络收发</div><div class="layui-card-body"><div id="ID_ops_network" class="operations-chart"></div></div></section></div>
+  </div></div>
+</div>
+<script>
+layui.use(["jquery"], function () {
+  const $ = layui.jquery;
+  const charts = { statistic:echarts.init(document.getElementById("ID_ops_statistic")), work:echarts.init(document.getElementById("ID_ops_work_threads")), threads:echarts.init(document.getElementById("ID_ops_threads")), cpu:echarts.init(document.getElementById("ID_ops_cpu")), memory:echarts.init(document.getElementById("ID_ops_memory")), disk:echarts.init(document.getElementById("ID_ops_disk")), network:echarts.init(document.getElementById("ID_ops_network")) };
+  const history = [];
+  let timer = null;
+  const axis = { type:"category", axisLabel:{ rotate:30, fontSize:10 } };
+  const tooltip = { trigger:"axis", confine:true };
+  function lineOption(name, labels, values, color, suffix) { return { tooltip, grid:{ left:42,right:16,top:26,bottom:42 }, xAxis:Object.assign({}, axis, { data:labels }), yAxis:{ type:"value", axisLabel:{ formatter:"{value}" + (suffix || "") } }, series:[{ name, type:"line", smooth:true, data:values, lineStyle:{ color }, itemStyle:{ color }, areaStyle:{ color:color + "22" } }] }; }
+  function loadZlm() {
+    $.get("/api/perf/statistic").done(function (res) { if (res && res.code === 0) { const data = res.data || {}; charts.statistic.setOption({ tooltip:{ trigger:"axis", confine:true }, grid:{ left:42,right:16,top:20,bottom:52 }, xAxis:Object.assign({}, axis,{ data:Object.keys(data) }), yAxis:{ type:"value" }, series:[{ type:"bar", data:Object.values(data), itemStyle:{ color:"#16baaa" } }] }, true); } });
+    function threadChart(url, chart) { $.get(url).done(function (res) { if (!res || res.code !== 0) return; const rows = Array.isArray(res.data) ? res.data : []; chart.setOption({ tooltip, legend:{ bottom:2 }, grid:{ left:42,right:16,top:25,bottom:50 }, xAxis:Object.assign({}, axis,{ data:rows.map(item => String(item.name || "").replace(/(work|event) poller /, "$1 ")) }), yAxis:[{ type:"value", name:"延迟" },{ type:"value", name:"负载%" }], series:[{ name:"延迟", type:"line", data:rows.map(item => item.delay || 0), itemStyle:{ color:"#5b8ff9" } },{ name:"负载", type:"bar", yAxisIndex:1, data:rows.map(item => item.load || 0), itemStyle:{ color:"#ffb800" } }] }, true); }); }
+    threadChart("/api/perf/work-threads-load", charts.work); threadChart("/api/perf/threads-load", charts.threads);
+  }
+  function loadHost() {
+    $.get("/api/perf/host-stats").done(function (res) { if (!res || res.code !== 0) return; const data = res.data || {}; history.push(data); while (history.length > 30) history.shift(); const labels = history.map(item => item.time || ""); charts.cpu.setOption(lineOption("CPU", labels, history.map(item => item.cpu || 0), "#1e9fff", "%"), true); charts.memory.setOption(lineOption("已用内存", labels, history.map(item => Number(item.memory && item.memory.used || 0)), "#756db6", " GB"), true); const disks = Array.isArray(data.disks) && data.disks.length ? data.disks : [data.disk || { device:"/", used:0, total:0 }]; const used = disks.map(item => Number(item.used || 0)); const totals = disks.map(item => Number(item.total || 0)); charts.disk.setOption({ tooltip:{ trigger:"axis", axisPointer:{ type:"shadow" }, confine:true }, legend:{ bottom:2 }, grid:{ left:40,right:12,top:20,bottom:40 }, xAxis:{ type:"value", axisLabel:{ formatter:"{value} GB" } }, yAxis:{ type:"category", data:disks.map(item => item.device || item.mountpoint || "/") }, series:[{ name:"已用", type:"bar", stack:"disk", data:used, itemStyle:{ color:"#ffb800" } },{ name:"剩余", type:"bar", stack:"disk", data:totals.map((total,index) => Math.max(0,total-used[index])), itemStyle:{ color:"#d9e2e8" } }] }, true); charts.network.setOption({ tooltip, legend:{ bottom:2 }, grid:{ left:42,right:16,top:26,bottom:42 }, xAxis:Object.assign({}, axis,{ data:labels }), yAxis:{ type:"value", axisLabel:{ formatter:value => (value / 1024 / 1024).toFixed(0) + " MB" } }, series:[{ name:"发送", type:"line", smooth:true, data:history.map(item => Number(item.net_io && item.net_io.sent || 0)), itemStyle:{ color:"#ff6b8b" } },{ name:"接收", type:"line", smooth:true, data:history.map(item => Number(item.net_io && item.net_io.recv || 0)), itemStyle:{ color:"#16baaa" } }] }, true); });
+  }
+  function refresh() { loadZlm(); loadHost(); }
+  window.clearnTimer = function () { if (timer) clearInterval(timer); timer = null; Object.keys(charts).forEach(key => charts[key].dispose()); };
+  $(window).on("resize", function () { Object.keys(charts).forEach(key => charts[key].resize()); });
+  refresh(); timer = setInterval(refresh, 3000);
+});
+</script>

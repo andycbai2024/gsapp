@@ -37,7 +37,11 @@
     .chart { height:calc(100% - 36px); min-height:150px; }
     .device-access { display:grid; grid-template-columns:48% 52%; height:calc(100% - 36px); }
     .device-access .chart { height:100%; min-height:0; }
-    .device-list { display:grid; align-content:start; gap:7px; max-height:100%; padding:11px 12px 11px 4px; overflow:auto; border-left:1px solid rgba(67,171,241,.24); }
+    .device-list { display:grid; align-content:start; gap:7px; max-height:100%; padding:11px 9px 11px 4px; overflow:auto; border-left:1px solid rgba(67,171,241,.24); scrollbar-width:thin; scrollbar-color:rgba(38,223,255,.65) transparent; }
+    .device-list::-webkit-scrollbar { width:5px; }
+    .device-list::-webkit-scrollbar-track { background:transparent; }
+    .device-list::-webkit-scrollbar-thumb { border-radius:4px; background:rgba(38,223,255,.65); }
+    .device-list::-webkit-scrollbar-thumb:hover { background:var(--cyan); }
     .device-row { display:grid; grid-template-columns:9px minmax(0,1fr) auto; gap:8px; align-items:center; padding:8px; border:1px solid rgba(83,163,230,.26); background:rgba(8,49,101,.45); }
     .device-dot { width:8px; height:8px; border-radius:50%; background:var(--orange); box-shadow:0 0 7px var(--orange); }
     .device-dot.online { background:var(--green); box-shadow:0 0 7px var(--green); }
@@ -111,7 +115,7 @@
       <div class="left-column">
         <section class="screen-panel"><div class="panel-title">设备接入态势</div><div class="device-access"><div class="chart" id="device-chart"></div><div class="device-list" id="device-list"><div class="empty-tip">正在加载设备...</div></div></div></section>
         <section class="screen-panel"><div class="panel-title">统计趋势</div><div class="chart" id="trend-chart"></div></section>
-        <section class="screen-panel"><div class="panel-title">快捷操作</div><div class="quick-actions"><button class="quick-action" data-page="./pages/cases.html?action=create">新建案件</button><button class="quick-action" data-page="./pages/cases.html">下发案件办理</button><button class="quick-action" data-page="./pages/cases.html">案件管理</button><button class="quick-action" data-page="./pages/video-preview.html">预览控制</button><button class="quick-action" data-page="./pages/playback.html">案件回放</button><button class="quick-action" data-page="./pages/settings.html">系统设置</button><button class="quick-action" data-page="./pages/resources.html">谈话室管理</button></div></section>
+        <section class="screen-panel"><div class="panel-title">快捷操作</div><div class="quick-actions"><button class="quick-action" data-page="cases.html?action=create">新建案件</button><button class="quick-action" data-page="cases.html">下发案件办理</button><button class="quick-action" data-page="cases.html">案件管理</button><button class="quick-action" data-page="video-preview.html">预览控制</button><button class="quick-action" data-page="playback.html">案件回放</button><button class="quick-action" data-page="settings.html">系统设置</button><button class="quick-action" data-page="resources.html">谈话室管理</button></div></section>
       </div>
       <div class="center-column">
         <section class="screen-panel"><div class="overview"><div class="metric-column"><div class="overview-metric"><span>在线设备</span><strong id="metric-online">0</strong><span>台</span></div><div class="overview-metric"><span>活跃告警</span><strong id="metric-alarms">0</strong><span>条</span></div></div><div class="core-orbit"><div class="core-label">办案区当前使用率<strong id="metric-usage">0%</strong></div></div><div class="metric-column"><div class="overview-metric"><span>可用谈话室</span><strong id="metric-rooms">0</strong><span>间</span></div><div class="overview-metric"><span>正在办理</span><strong id="metric-cases">0</strong><span>件</span></div></div></div></section>
@@ -132,6 +136,7 @@
       let activeTaskStage = "ready";
       let dashboardData = {};
       const taskStageLabels = { ready:"设备就绪", scheduled:"案件排期", intake:"案件录入", handling:"案件办理中", evidence:"办理暂停中", closed:"案件办结", archived:"材料归档" };
+      const taskStatusLabels = { created:"待下发", assigned:"已下发", handling:"办理中", closed:"已办结", archived:"已归档", planned:"待开始", active:"进行中", finalizing:"封盘校验中", ended:"已结束", cancelled:"已取消" };
       function value(data, selector) { $(selector).text(data == null ? 0 : data); }
       function safeList(response) { return response && response.code === 0 && Array.isArray(response.data) ? response.data : []; }
       function stateName(status) { return { active:"待处置", acknowledged:"已确认", resolved:"已解除" }[status] || status || "未知"; }
@@ -192,7 +197,7 @@
           const isSessionTask = stage === "scheduled";
           const title = (task.case_no || "未编号案件") + " · " + (task.case_name || task.name || task.session_no || "办案任务");
           const detail = isSessionTask ? (task.session_no || "待人工开始") : formatTime(task.updated_at);
-          const location = isSessionTask ? (task.room_name || task.device_name || "待分配场所") : (task.status || label);
+          const location = isSessionTask ? (task.room_name || task.device_name || "待分配场所") : (taskStatusLabels[task.status] || label);
           return '<div class="schedule-item"><span class="task-stage">' + escapeHtml(label) + '</span><span class="schedule-case">' + escapeHtml(title) + '<small>' + escapeHtml(detail) + '</small></span><span class="schedule-room">' + escapeHtml(location) + '</span></div>';
         }).join(""));
       }
@@ -212,7 +217,14 @@
       }
       $("#screen-fullscreen").on("click", function () { const root = document.getElementById("command-screen"); if (document.fullscreenElement) document.exitFullscreen(); else if (root.requestFullscreen) root.requestFullscreen(); });
       $(".workflow-node").on("click", function () { activeTaskStage = $(this).data("stage"); renderTaskList(); });
-      $(".quick-action").on("click", function () { const page = $(this).data("page"); const frame = window.parent && window.parent.document && window.parent.document.getElementById("main-frame"); if (frame) frame.src = page; else window.location.href = page; });
+      $(".quick-action").on("click", function () {
+        const page = $(this).data("page");
+        const target = "./pages/" + page.split("?")[0];
+        const navigation = $(".layui-nav-tree a[data-page='" + target + "']");
+        if (!navigation.length) { window.location.href = page; return; }
+        navigation.first().trigger("click");
+        if (page.indexOf("action=create") >= 0) setTimeout(function () { $("#ID_case_add").trigger("click"); }, 0);
+      });
       $(window).on("resize", function () { charts.forEach(function (chart) { chart.resize(); }); });
       window.clearnTimer = function () { if (refreshTimer) clearTimeout(refreshTimer); refreshTimer = null; charts.forEach(function (chart) { chart.dispose(); }); };
       updateClock(); setInterval(updateClock,1000); refreshDashboard();
